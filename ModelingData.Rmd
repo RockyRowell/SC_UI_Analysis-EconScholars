@@ -1,0 +1,1061 @@
+---
+title: "Modeling the Data"
+author: "Rocky Rowell"
+date: "2025-03-18"
+output: html_document
+---
+
+# Libraries
+```{r message=FALSE, warning=FALSE}
+library(tidyverse); library(ggplot2); library(ggthemes); library(lubridate); library(car); library(reshape2); library(caret)
+library(mgcv); library(gratia)
+```
+
+# Data
+## Load in Data
+```{r}
+# data is from the CleaningData.rmd file that combines all datasets used into one final dataset
+data <- read.csv("Datasets/FinalData.csv", header=T)
+
+# convert date to date format
+data$Date <- as.Date(data$Date)
+
+# check data
+tail(data, 10)
+```
+
+## Create Datasets for each Date Cutoff
+```{r}
+# dataset with all variables (2009)
+data.2009 <- data %>%
+  drop_na()
+
+print(data.2009)
+
+# dataset with all variables (2009) without Covid which is row 134, 135, 136
+data.2009.nocovid <- data.2009 %>% slice(-c(134, 135, 136, 137, 138))
+
+# check data
+head(data.2009.nocovid)
+```
+
+```{r}
+# dataset starting in 1976
+data.1976 <- data %>%
+  filter(Date >= "1976-01-01",
+         !year(Date) %in% c(2020, 2025))
+```
+
+```{r}
+# dataset starting in 1981
+data.1981 <- data %>%
+  filter(Date >= "1981-01-01",
+         !year(Date) %in% c(2020, 2025))
+```
+
+```{r}
+# dataset starting in 2001
+data.2001 <- data %>%
+  filter(Date >= "2001-01-01",
+         !year(Date) %in% c(2020, 2025),
+         Date < "2024-12-31")
+
+print(data.2001)
+```
+
+I will create datasets based off the needs of the models tested below. However, for the first model, I will use a dataset that includes all variables and drops all rows with NA values which leaves us data from 2009 to 2024
+
+
+***
+# Model Testing
+
+***
+# Initial Claims Lagged Percentage Change Models
+## Model 1: Initial Claims ~ All Other Variables
+### Create Model
+```{r}
+# create model
+full.model <- lm(InitialClaims.LagPer ~ Unemployment + Unemployment.Per + Employment + Employment.Per + LaborForce + LaborForce.Per + SP500.Per + SP500_Health.Per + 
+                   SP500_Energy.Per + LFPR + LFPR.Per + Hires + Hires.Per + Separations + Separations.Per + Quits + Quits.Per + Layoffs + Layoffs.Per + Openings + 
+                   Openings.Per, data = data.2009) 
+
+# check model
+summary(full.model)
+```
+
+### Reduce Model
+```{r}
+# use stepwise regression
+full.model.step <- step(full.model, direction = "both", trace = F)
+
+# check model
+summary(full.model.step)
+```
+
+Model 1 is a linear regression model that uses all variables to predict the percentage change in initial claims. The model is reduced using stepwise regression to remove variables that do not significantly contribute to the model. All variables in the reduced model are significant at the 0.05 level.    
+
+Variables:    
+- Unemployment Percentage Change    
+- S&P 500 Energy Percentage Change    
+- Labor Force Participation Rate    
+- Hires   
+- Hires Percentage Change   
+- Separations   
+- Separation Percentage Change    
+- Layoffs Percentage Change   
+- Openings Percentage Change    
+
+$R^2=0.9394$ which is high and may imply overfitting (to be expected)   
+
+```{r}
+par(mfrow=c(2,2))
+plot(full.model.step)
+```
+
+Clearly, Covid causes real issues with the model becuase of the extreme outliers from the time period. Because of that, I'm going to repeat this whole process for model but wihtout the Covid data.
+
+## Model 2: Initial Claims ~ All Other Variables (No Covid)
+### Create Model
+```{r}
+# create model
+full.model.nocovid <- lm(InitialClaims.LagPer ~ Unemployment + Unemployment.Per + Employment + Employment.Per + LaborForce + LaborForce.Per + SP500.Per + SP500_Health.Per + 
+                   SP500_Energy.Per + LFPR + LFPR.Per + Hires + Hires.Per + Separations + Separations.Per + Quits + Quits.Per + Layoffs + Layoffs.Per + Openings + 
+                   Openings.Per, data = data.2009.nocovid) 
+
+# check model
+summary(full.model.nocovid)
+```
+
+### Reduce Model
+```{r}
+# use stepwise regression
+full.model.nocovid.step <- step(full.model.nocovid, direction = "both", trace = F)
+
+# check model
+summary(full.model.nocovid.step)
+```
+
+```{r}
+par(mfrow=c(2,2))
+plot(full.model.nocovid.step)
+```
+
+Diagnostic Plots look a little better at least, but we don't want to use these models due to the similarities in variables.   
+    
+Let's check the correlation between the variables before moving on to new models.
+
+## Correlation Check
+### Correlation Matrix
+```{r}
+# Calculate the correlation matrix
+cor_matrix <- cor(data.2009.nocovid[, c("Unemployment", "Employment", "LaborForce", "Unemployment.Per", "Employment.Per", "LaborForce.Per", "SP500", "SP500.Per", 
+                                        "SP500_Health", "SP500_Health.Per", "SP500_Energy", "SP500_Energy.Per", "LFPR", "LFPR.Per", "Hires", "Hires.Per", 
+                                        "Separations", "Separations.Per", "Quits", "Quits.Per", "Layoffs", "Layoffs.Per", "Openings", "Openings.Per")], use = "complete.obs")
+
+# reshape data
+cor_long <- melt(cor_matrix)
+
+# create heatmap
+ggplot(cor_long, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile(color = "white") +  # Add grid lines for clarity
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                       midpoint = 0, limit = c(-1, 1), space = "Lab", 
+                       name = "Correlation") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1, size = 10), # Adjust axis label size
+    axis.text.y = element_text(size = 10),  # Adjust y-axis label size
+    axis.title.x = element_text(size = 12), # Adjust axis title size
+    axis.title.y = element_text(size = 12)
+  ) +
+  labs(
+    title = "Correlation Matrix Heatmap", 
+    x = "", 
+    y = ""
+  )
+```
+
+I used the 2009 > data in order to have data for all variables, but that does mean that the correlation for variables that have data before 2009 may have different correlation values. However, we can approach those issues when it comes to using data before 2009. Along with this, the data used also excludes the Covid data with the mindset being that almost all of these variables will be highly correlated with each other during that time period. As for the results of this correlation matrix, we can see that there are some variables that are highly correlated with each other.   
+
+Important Notes:    
+- Unemployment, Employment, Labor Force, SP500 (not % change), SP500_Health, LFPR, Hires, Separations, Quits, Layoffs, and Openings are highly correlated with each other   
+- All of the % change variables have low correlation with each other with the only exception being SP500 % change being correlated with the healthcare and energy indices which is to be expected. Even then, the correlation is still not terrible. Unemployment % Change is correlated with Employment % Change which is to be expected as well.   
+- These results tell us that using nominal totals of these variables is problematic for modeling the data but using the percentage changes of these variables is actually a good approach   
+
+### VIF Values
+```{r}
+# Labor Force was a Perfect Predictor so let's make a model without it then get vif values
+full.model.nocovid.nolf <- lm(InitialClaims.LagPer ~ Unemployment + Unemployment.Per + Employment + Employment.Per + LaborForce.Per + SP500.Per + SP500_Health.Per + 
+                   SP500_Energy.Per + LFPR + LFPR.Per + Hires + Hires.Per + Separations + Separations.Per + Quits + Quits.Per + Layoffs + Layoffs.Per + Openings + 
+                   Openings.Per, data = data.2009.nocovid) 
+
+
+# Calculate VIF values
+vif_values <- vif(full.model.nocovid.nolf)
+print(vif_values)
+
+# Identify predictors with high VIF
+high_vif <- names(vif_values[vif_values > 5])
+print(high_vif)
+```
+
+Problematic VIF Values: (in order)    
+- Quits: 1194.103294    
+- Separations: 886.286626   
+- Layoffs: 83.554338    
+- Hires: 77.255853    
+- Openings: 49.293251   
+- SP500.Per: 32.803942    
+- Unemployment.Per: 18.927400   
+- Employment: 16.435102   
+- Separations.Per: 15.286586    
+- LaborForce.Per: 11.196886   
+- Employment.Per: 10.396365   
+- Layoffs.Per: 9.200236   
+- Quits.Per: 9.198507   
+- LFPR: 8.009093    
+
+Good VIF Values:    
+- SP500.Per: 4.167085   
+- SP500_Health.Per: 3.124275  
+- Hires.Per: 2.589948   
+- SP500_Energy.Per: 1.959842  
+- LFPR.Per: 1.339266    
+- Openings.Per: 1.330286    
+
+But what if we make a model with only percentage change variables?    
+
+```{r}
+# Create Model
+full.model.nocovid.perchange <- lm(InitialClaims.LagPer ~ Unemployment.Per + Employment.Per + LaborForce.Per + SP500.Per + SP500_Health.Per + 
+                   SP500_Energy.Per + LFPR.Per + Hires.Per + Separations.Per + Quits.Per + Layoffs.Per + Openings.Per, data = data.2009.nocovid) 
+
+
+# Calculate VIF values
+vif_values <- vif(full.model.nocovid.perchange)
+print(vif_values)
+
+# Identify predictors with high VIF
+high_vif <- names(vif_values[vif_values > 5])
+print(high_vif)
+```
+
+Problematic VIF Values: (in order)    
+- Separations.Per: 11.560842    
+- Employment.Per: 9.014291    
+- Layoffs.Per: 7.334478   
+- Quits.Per: 7.267974   
+- Unemployment.Per: 5.310582    
+
+Good VIF Values:    
+- LaborForce.Per: 4.738848    
+- SP500.Per: 3.465494   
+- SP500_Health.Per: 2.692069    
+- SP500_Energy.Per: 1.735067    
+- Openings.Per: 1.194689    
+- LFPR.Per: 1.163298    
+- Hires.Per: 1.475760   
+
+These values are way better even if there are still some bad VIF values   
+
+
+***
+# Initial Claims Lagged 2 Months Percentange Change Models
+## Model 3: Initial Claims ~ All Percentage Change Variables (without Covid)
+### Create Model
+```{r}
+# create model
+Mod3 <- lm(InitialClaims.Lag2Per ~ Unemployment.Per + Employment.Per + LaborForce.Per + SP500.Per + SP500_Health.Per + 
+                   SP500_Energy.Per + LFPR.Per + Hires.Per + Separations.Per + Quits.Per + Layoffs.Per + Openings.Per, data = data.2009.nocovid) 
+
+# check model
+summary(Mod3)
+```
+
+Initially, these variables are not significant which looks bad. The $R^2$ is horrible   
+
+### Reduce Model
+```{r}
+# use stepwise regression
+Mod3.step <- step(Mod3, direction = "both", trace = F)
+
+# check model
+summary(Mod3.step)
+```
+
+This model is bad regardless of being reduced or not. The $R^2$ is still bad and the variables are not significant.
+
+
+
+
+
+
+
+## Plot Variables
+```{r}
+colnames(data.2009.nocovid)
+```
+
+```{r}
+# create plot
+ggplot(data.2009.nocovid, aes(x = Unemployment.Per, y = InitialClaims.Lag2Per)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(title = " ",
+       x = " ",
+       y = "Initial Claims Percentage Change") +
+  theme_minimal()
+```
+
+
+***
+# Testing Claims vs unemployment
+## Model: intial claims ~ unemployment
+```{r}
+# create model
+model.unemployment <- lm(InitialClaims ~ Unemployment, data = data.2009.nocovid)
+
+# check model
+summary(model.unemployment)
+```
+
+```{r}
+# create model
+model.unemployment <- lm(InitialClaims.Lag ~ Unemployment, data = data.2009.nocovid)
+
+# check model
+summary(model.unemployment)
+```
+
+```{r}
+# create model
+model.unemployment <- lm(InitialClaims.Lag2 ~ Unemployment, data = data.2009.nocovid)
+
+# check model
+summary(model.unemployment)
+```
+
+
+***
+# Models with Initial Claims per Capita Lagged
+## Model 1: All variables
+```{r}
+# create model
+mod1.percap <- lm(InitialClaims.Lag.PerCapita ~ Unemployment + Unemployment.Per + Unemployment.PerCapita + Employment + Employment.Per + Employment.PerCapita +
+                    LaborForce + LaborForce.Per + LaborForce.PerCapita + SP500 + SP500.Per +SP500_Health + SP500_Health.Per + SP500_Energy + SP500_Energy.Per + 
+                    LFPR + LFPR.Per + Hires + 
+                    Hires.Per + Separations + Separations.Per + Quits + Quits.Per + Layoffs + Layoffs.Per + Openings + Openings.Per, data = data.2009.nocovid)
+
+# check model
+summary(mod1.percap)
+```
+
+```{r}
+# reduce model 
+mod1.percap.step <- step(mod1.percap, direction = "both", trace = F)
+
+# check model 
+summary(mod1.percap.step)
+```
+
+
+## Model 2: All variables (% change)
+```{r}
+# create model
+mod2.percap <- lm(InitialClaims.Lag.PerCapita ~ Unemployment.Per + Employment.Per + LaborForce.Per + SP500.Per + SP500_Health.Per + SP500_Energy.Per + LFPR.Per + 
+                    Hires.Per + Separations.Per + Quits.Per + Layoffs.Per + Openings.Per, data = data.2009.nocovid)
+
+# check model
+summary(mod2.percap)
+```
+
+```{r}
+# reduce model 
+mod2.percap.step <- step(mod2.percap, direction = "both", trace = F)
+
+# check model 
+summary(mod2.percap.step)
+```
+
+
+## Model 3: All variables (no % change)
+```{r}
+# create model
+mod3.percap <- lm(InitialClaims.Lag.PerCapita ~ Unemployment + Employment + LaborForce + SP500 + SP500_Health + SP500_Energy + LFPR + 
+                    Hires + Separations + Quits + Layoffs + Openings, data = data.2009.nocovid)
+
+# check model
+summary(mod3.percap)
+```
+
+```{r}
+# reduce model 
+mod3.percap.step <- step(mod3.percap, direction = "both", trace = F)
+
+# check model 
+summary(mod3.percap.step)
+```
+
+Conclusion based off Adjusted $R^2$: The model with only % change predictors was very bad with a $R^2=0.084$ at best. The other two models were comparable to each other but the model with all variables did better than the model with only predictors that aren't % change ($0.8367>0.7943$). A good way of testing the effectiveness of these model is the split the data into training and testing data and see its accuracy.
+
+
+## Split data into training and testing data
+```{r}
+# split datasets
+set.seed(112233)
+
+# 70% training, 30% testing
+train.indices.data.2009.nocovid <- createDataPartition(data.2009.nocovid$InitialClaims.Lag.PerCapita, p = 0.7, list = FALSE)
+
+train_data.data.2009.nocovid <- data.2009.nocovid[train.indices.data.2009.nocovid, ]
+test_data.data.2009.nocovid <- data.2009.nocovid[-train.indices.data.2009.nocovid, ]
+
+tail(train_data.data.2009.nocovid)
+```
+
+## Test Model 1
+```{r}
+# create model
+mod1.percap.train <- lm(InitialClaims.Lag.PerCapita ~ Unemployment + Unemployment.Per + Unemployment.PerCapita + Employment + Employment.Per + Employment.PerCapita +
+                    LaborForce + LaborForce.Per + LaborForce.PerCapita + SP500 + SP500.Per +SP500_Health + SP500_Health.Per + SP500_Energy + SP500_Energy.Per + 
+                    LFPR + LFPR.Per + Hires + 
+                    Hires.Per + Separations + Separations.Per + Quits + Quits.Per + Layoffs + Layoffs.Per + Openings + Openings.Per, data = train_data.data.2009.nocovid)
+
+# reduce model
+mod1.percap.step.train <- step(mod1.percap.train, direction = "both", trace = F)
+
+# gather predictions
+mod1.percap.train.pred <- predict(mod1.percap.train, newdata = test_data.data.2009.nocovid)
+mod1.percap.step.train.pred <- predict(mod1.percap.step.train, newdata = test_data.data.2009.nocovid)
+
+# MSE
+mod1.percap.train.pred.MSE <- mean((test_data.data.2009.nocovid$InitialClaims.Lag.PerCapita - mod1.percap.train.pred)^2)
+mod1.percap.step.train.pred.MSE <- mean((test_data.data.2009.nocovid$InitialClaims.Lag.PerCapita - mod1.percap.step.train.pred)^2)
+
+mod1.percap.train.pred.RMSE <- sqrt(mod1.percap.train.pred.MSE)
+mod1.percap.step.train.pred.RMSE <- sqrt(mod1.percap.step.train.pred.MSE)
+
+# print values
+print(paste("MSE:", mod1.percap.train.pred.MSE))
+print(paste("RMSE:", mod1.percap.train.pred.RMSE))
+print(paste("MSE (step):", mod1.percap.step.train.pred.MSE))
+print(paste("RMSE (step):", mod1.percap.step.train.pred.RMSE))
+```
+
+```{r}
+ggplot(test_data.data.2009.nocovid, aes(x = InitialClaims.Lag.PerCapita, y = mod1.percap.train.pred)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+  labs(title = "Predicted vs Actual",
+       x = "Actual Values",
+       y = "Predicted Values")
+```
+
+```{r}
+ggplot(test_data.data.2009.nocovid, aes(x = InitialClaims.Lag.PerCapita, y = mod1.percap.step.train.pred)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+  labs(title = "Predicted vs Actual",
+       x = "Actual Values",
+       y = "Predicted Values")
+```
+
+
+## Test Model 3
+```{r}
+# create model
+mod3.percap.train <- lm(InitialClaims.Lag.PerCapita ~ Unemployment + Employment + LaborForce + SP500 + SP500_Health + SP500_Energy + LFPR + 
+                    Hires + Separations + Quits + Layoffs + Openings, data = train_data.data.2009.nocovid)
+
+# reduce model
+mod3.percap.step.train <- step(mod3.percap.train, direction = "both", trace = F)
+
+# gather predictions
+mod3.percap.train.pred <- predict(mod3.percap.train, newdata = test_data.data.2009.nocovid)
+mod3.percap.step.train.pred <- predict(mod3.percap.step.train, newdata = test_data.data.2009.nocovid)
+
+# MSE
+mod3.percap.train.pred.MSE <- mean((test_data.data.2009.nocovid$InitialClaims.Lag.PerCapita - mod3.percap.train.pred)^2)
+mod3.percap.step.train.pred.MSE <- mean((test_data.data.2009.nocovid$InitialClaims.Lag.PerCapita - mod3.percap.step.train.pred)^2)
+
+mod3.percap.train.pred.RMSE <- sqrt(mod3.percap.train.pred.MSE)
+mod3.percap.step.train.pred.RMSE <- sqrt(mod3.percap.step.train.pred.MSE)
+
+# print values
+print(paste("MSE:", mod3.percap.train.pred.MSE))
+print(paste("RMSE:", mod3.percap.train.pred.RMSE))
+print(paste("MSE (step):", mod3.percap.step.train.pred.MSE))
+print(paste("RMSE (step):", mod3.percap.step.train.pred.RMSE))
+```
+
+```{r}
+ggplot(test_data.data.2009.nocovid, aes(x = InitialClaims.Lag.PerCapita, y = mod3.percap.train.pred)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+  labs(title = "Predicted vs Actual",
+       x = "Actual Values",
+       y = "Predicted Values")
+```
+
+```{r}
+ggplot(test_data.data.2009.nocovid, aes(x = InitialClaims.Lag.PerCapita, y = mod3.percap.step.train.pred)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+  labs(title = "Predicted vs Actual",
+       x = "Actual Values",
+       y = "Predicted Values")
+```
+
+
+***
+# Use Training / Testing Data on Nominal Claims
+## Make Training and Testing Data
+```{r}
+# split datasets
+set.seed(112233)
+
+# 70% training, 30% testing
+train.indices.data.2009.nocovid <- createDataPartition(data.2009.nocovid$InitialClaims.Lag, p = 0.7, list = FALSE)
+
+train_data.data.2009.nocovid <- data.2009.nocovid[train.indices.data.2009.nocovid, ]
+test_data.data.2009.nocovid <- data.2009.nocovid[-train.indices.data.2009.nocovid, ]
+
+tail(train_data.data.2009.nocovid)
+```
+
+## Model 1: All Variables
+```{r}
+# create model
+mod1.nom.train <- lm(InitialClaims.Lag ~ Unemployment + Unemployment.Per + Unemployment.PerCapita + Employment + Employment.Per + Employment.PerCapita +
+                    LaborForce + LaborForce.Per + LaborForce.PerCapita + SP500 + SP500.Per +SP500_Health + SP500_Health.Per + SP500_Energy + SP500_Energy.Per + 
+                    LFPR + LFPR.Per + Hires + 
+                    Hires.Per + Separations + Separations.Per + Quits + Quits.Per + Layoffs + Layoffs.Per + Openings + Openings.Per, data = train_data.data.2009.nocovid)
+
+# reduce model
+mod1.nom.step.train <- step(mod1.nom.train, direction = "both", trace = F)
+
+# gather predictions
+mod1.nom.train.pred <- predict(mod1.nom.train, newdata = test_data.data.2009.nocovid)
+mod1.nom.step.train.pred <- predict(mod1.nom.step.train, newdata = test_data.data.2009.nocovid)
+
+# MSE
+mod1.nom.train.pred.MSE <- mean((test_data.data.2009.nocovid$InitialClaims.Lag - mod1.nom.train.pred)^2)
+mod1.nom.step.train.pred.MSE <- mean((test_data.data.2009.nocovid$InitialClaims.Lag - mod1.nom.step.train.pred)^2)
+
+mod1.nom.train.pred.RMSE <- sqrt(mod1.nom.train.pred.MSE)
+mod1.nom.step.train.pred.RMSE <- sqrt(mod1.nom.step.train.pred.MSE)
+
+# print values
+print(paste("MSE:", mod1.nom.train.pred.MSE))
+print(paste("RMSE:", mod1.nom.train.pred.RMSE))
+print(paste("MSE (step):", mod1.nom.step.train.pred.MSE))
+print(paste("RMSE (step):", mod1.nom.step.train.pred.RMSE))
+```
+
+```{r}
+ggplot(test_data.data.2009.nocovid, aes(x = InitialClaims.Lag.PerCapita, y = mod3.percap.train.pred)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+  labs(title = "Predicted vs Actual",
+       x = "Actual Values",
+       y = "Predicted Values")
+```
+
+```{r}
+ggplot(test_data.data.2009.nocovid, aes(x = InitialClaims.Lag.PerCapita, y = mod3.percap.step.train.pred)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+  labs(title = "Predicted vs Actual",
+       x = "Actual Values",
+       y = "Predicted Values")
+```
+
+## Model 3: All Variables (no % change)
+```{r}
+# create model
+mod3.nom.train <- lm(InitialClaims.Lag ~ Unemployment + Employment + LaborForce + SP500 + SP500_Health + SP500_Energy + LFPR + 
+                    Hires + Separations + Quits + Layoffs + Openings, data = train_data.data.2009.nocovid)
+
+# reduce model
+mod3.nom.step.train <- step(mod3.nom.train, direction = "both", trace = F)
+
+# gather predictions
+mod3.nom.train.pred <- predict(mod3.nom.train, newdata = test_data.data.2009.nocovid)
+mod3.nom.step.train.pred <- predict(mod3.nom.step.train, newdata = test_data.data.2009.nocovid)
+
+# MSE
+mod3.nom.train.pred.MSE <- mean((test_data.data.2009.nocovid$InitialClaims.Lag - mod3.nom.train.pred)^2)
+mod3.nom.step.train.pred.MSE <- mean((test_data.data.2009.nocovid$InitialClaims.Lag - mod3.nom.step.train.pred)^2)
+
+mod3.nom.train.pred.RMSE <- sqrt(mod3.nom.train.pred.MSE)
+mod3.nom.step.train.pred.RMSE <- sqrt(mod3.nom.step.train.pred.MSE)
+
+# print values
+print(paste("MSE:", mod3.nom.train.pred.MSE))
+print(paste("RMSE:", mod3.nom.train.pred.RMSE))
+print(paste("MSE (step):", mod3.nom.step.train.pred.MSE))
+print(paste("RMSE (step):", mod3.nom.step.train.pred.RMSE))
+```
+
+```{r}
+ggplot(test_data.data.2009.nocovid, aes(x = InitialClaims.Lag.PerCapita, y = mod3.percap.train.pred)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+  labs(title = "Predicted vs Actual",
+       x = "Actual Values",
+       y = "Predicted Values")
+```
+
+```{r}
+ggplot(test_data.data.2009.nocovid, aes(x = InitialClaims.Lag.PerCapita, y = mod3.percap.step.train.pred)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+  labs(title = "Predicted vs Actual",
+       x = "Actual Values",
+       y = "Predicted Values")
+```
+
+The adjusted $R^2$ of these models are 0.8026 (step = 0.8142) and 0.7525 (step = 0.7568) respectively. In comparison to the per capita models, those adjusted $R^2$ values are 0.8403 (step = 0.8485) and 0.798 (step = 0.8003) respectively. Therefore, Model 1 for Per Capita is the best model by adjusted $R^2$
+
+## Compare all 8 models by MAPE
+```{r}
+# Calculate MAPE
+MAPE <- function(actual, predicted) {
+  mean(abs((actual - predicted) / actual)) * 100
+}
+
+# Model 1 Per Capita
+mod1.percap.MAPE <- MAPE(test_data.data.2009.nocovid$InitialClaims.Lag.PerCapita, mod1.percap.train.pred)
+mod1.percap.step.MAPE <- MAPE(test_data.data.2009.nocovid$InitialClaims.Lag.PerCapita, mod1.percap.step.train.pred)
+
+# Model 3 Per Capita
+mod3.percap.MAPE <- MAPE(test_data.data.2009.nocovid$InitialClaims.Lag.PerCapita, mod3.percap.train.pred)
+mod3.percap.step.MAPE <- MAPE(test_data.data.2009.nocovid$InitialClaims.Lag.PerCapita, mod3.percap.step.train.pred)
+
+# Model 1 Nominal
+mod1.nom.MAPE <- MAPE(test_data.data.2009.nocovid$InitialClaims.Lag, mod1.nom.train.pred)
+mod1.nom.step.MAPE <- MAPE(test_data.data.2009.nocovid$InitialClaims.Lag, mod3.nom.step.train.pred)
+
+# Model 3 Nominal
+mod3.nom.MAPE <- MAPE(test_data.data.2009.nocovid$InitialClaims.Lag, mod3.nom.train.pred)
+mod3.nom.step.MAPE <- MAPE(test_data.data.2009.nocovid$InitialClaims.Lag, mod3.nom.step.train.pred)
+
+# print
+print(paste("MAPE Model 1 - Per Capita: ", mod1.percap.MAPE))
+print(paste("MAPE Model 1 - Per Capita (step): ", mod1.percap.step.MAPE))
+print(paste("MAPE Model 3 - Per Capita: ", mod3.percap.MAPE))
+print(paste("MAPE Model 3 - Per Capita (step): ", mod3.percap.step.MAPE))
+print(paste("MAPE Model 1 - Nominal: ", mod1.nom.MAPE))
+print(paste("MAPE Model 1 - Nominal (step): ", mod1.nom.step.MAPE))
+print(paste("MAPE Model 3 - Nominal: ", mod3.nom.MAPE))
+print(paste("MAPE Model 3 - Nominal (step): ", mod3.nom.step.MAPE))
+```
+
+The best models by MAPE are Model 3 for per capita and nominal. Because of this, I think it's fair to pick either one
+
+
+***
+# In-Depth Analysis of Per Capita Models
+## Check Each Variable with Initial Claims Lagged Per Capita
+```{r}
+examplemod <- lm(InitialClaims.Lag.PerCapita ~ Unemployment.PerCapita, data = data.2009.nocovid)
+
+summary(examplemod)
+```
+
+Here I checked every version of every predictor to get an idea of which are best at predicting Initial Claims Lagged Per Capita. Here are the results
+- Unemployment: Unemployment Per Capita
+- Employment: Employment 
+- Labor Force: Per Capita
+- S%P 500: no % change for any
+- The rest are fine as not % change
+
+
+## GAM Model (check linearity)
+```{r}
+# create model (drop labor force)
+PerCapGAM <- gam(InitialClaims.Lag.PerCapita ~ s(Unemployment.PerCapita) + s(Employment.PerCapita) + s(LaborForce.PerCapita) + s(UnemploymentRate) + s(SP500) + s(SP500_Health) + 
+                  s(SP500_Energy) + s(LFPR) + s(Hires) + s(Separations) + s(Quits) + s(Layoffs) + s(Openings), data = data.2009.nocovid, family=binomial)
+
+# check model
+summary(PerCapGAM)
+```
+
+```{r}
+exampleGAM <- gam(InitialClaims.Lag.PerCapita ~ s(Unemployment.PerCapita), data = data.2009.nocovid, family=binomial)
+
+draw(exampleGAM)
+```
+
+I ran all the predictors through this and all of them have a linear relationship so linear regression is a safe decision
+
+
+## Create a Final Per Capita Model
+```{r}
+# create intial model
+PerCapMod <- lm(InitialClaims.Lag.PerCapita ~ Unemployment.PerCapita + Employment.PerCapita + LaborForce.PerCapita + UnemploymentRate + SP500 + SP500_Health + 
+                  SP500_Energy + LFPR + Hires + Separations + Quits + Layoffs + Openings, data = data.2009.nocovid)
+
+# check model
+summary(PerCapMod)
+```
+
+```{r}
+# reduce model
+PerCapMod.Step <- step(PerCapMod, trace = F, direction = "both")
+
+# check model
+summary(PerCapMod.Step)
+```
+
+```{r}
+confint(PerCapMod.Step)
+```
+
+```{r}
+print(vif(PerCapMod.Step))
+```
+
+### Diagnostic Plots
+```{r}
+par(mfrow=c(2,2))
+plot(PerCapMod)
+
+par(mfrow=c(1,1))
+plot(PerCapMod, 4)
+```
+
+```{r}
+par(mfrow=c(2,2))
+plot(PerCapMod.Step)
+
+par(mfrow=c(1,1))
+plot(PerCapMod.Step, 4)
+```
+
+Both the plots for the original model and the reduced model look pretty good. You could complain about the QQ plot having a tail at the top. 
+
+I tested this model with the normal data.2009 and observations 134, 135, 136, 137, and 138 were all extreme outliers (covid) so I do think dropping them is necessary for a model on typical initial claims. After dropping those observations, we still have some outliers in 134, 137, adn 139 (updated order) but these aren't nearly as bad and should be included since their value on the Cook's Distance Plot is at most 0.25
+
+
+## Very Reduced Models with No Multicollinearity
+### Model 1:
+```{r}
+# create model
+PerCapMod.reduced1 <- lm(InitialClaims.Lag.PerCapita ~ Unemployment.PerCapita + SP500_Energy + Layoffs, data = data.2009.nocovid)
+
+# check model
+summary(PerCapMod.reduced1)
+```
+
+### Model 2:
+```{r}
+# create model
+PerCapMod.reduced2 <- lm(InitialClaims.Lag.PerCapita ~ Unemployment.PerCapita, data = data.2009.nocovid)
+
+# check model
+summary(PerCapMod.reduced2)
+```
+
+The adjusted $R^2$ is very close for both mdoels but model 1 has a better $R^2$ ($0.7756 > 0.7224$). How do they predict?
+
+
+### Test Predictions
+```{r}
+# create model
+PerCapMod.train1 <- lm(InitialClaims.Lag.PerCapita ~ Unemployment.PerCapita + SP500_Energy + Layoffs, data = train_data.data.2009.nocovid)
+PerCapMod.train2 <- lm(InitialClaims.Lag.PerCapita ~ Unemployment.PerCapita, data = train_data.data.2009.nocovid)
+
+# gather predictions
+PerCapMod.train1.pred <- predict(PerCapMod.train1, newdata = test_data.data.2009.nocovid)
+PerCapMod.train2.pred <- predict(PerCapMod.train2, newdata = test_data.data.2009.nocovid)
+
+# MSE and RMSE
+PerCapMod.train1.pred.MSE <- mean((test_data.data.2009.nocovid$InitialClaims.Lag.PerCapita - PerCapMod.train1.pred)^2)
+PerCapMod.train2.pred.MSE <- mean((test_data.data.2009.nocovid$InitialClaims.Lag.PerCapita - PerCapMod.train2.pred)^2)
+
+PerCapMod.train1.pred.RMSE <- sqrt(PerCapMod.train1.pred.MSE)
+PerCapMod.train2.pred.RMSE <- sqrt(PerCapMod.train2.pred.MSE)
+
+# print values
+print(paste("MSE 1:", PerCapMod.train1.pred.MSE))
+print(paste("RMSE 1:", PerCapMod.train1.pred.RMSE))
+
+print(paste("MSE 2:", PerCapMod.train2.pred.MSE))
+print(paste("RMSE 2:", PerCapMod.train2.pred.RMSE))
+```
+
+```{r}
+ggplot(test_data.data.2009.nocovid, aes(x = InitialClaims.Lag.PerCapita, y = PerCapMod.train1.pred)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+  labs(title = "Predicted vs Actual of Model 1",
+       x = "Actual Values",
+       y = "Predicted Values")
+```
+
+```{r}
+ggplot(test_data.data.2009.nocovid, aes(x = InitialClaims.Lag.PerCapita, y = PerCapMod.train2.pred)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+  labs(title = "Predicted vs Actual of Model 2",
+       x = "Actual Values",
+       y = "Predicted Values")
+```
+
+Both models aren't too different but the model with SP500_Energy and Layoffs is better. Both have trouble with a few outliers which I will check now with the Cook's Distance Plot
+
+### Diagnostic Plots
+```{r}
+# model 1
+par(mfrow=c(2,2))
+plot(PerCapMod.reduced1)
+
+par(mfrow=c(1,1))
+plot(PerCapMod.reduced1, 4)
+
+
+# model 2
+par(mfrow=c(2,2))
+plot(PerCapMod.reduced2)
+
+par(mfrow=c(1,1))
+plot(PerCapMod.reduced2, 4)
+```
+
+The biggest outlier for Model 1 is observation 139 but it isn't big enough to worry about meanwhile Model 2 doesn't have any concerning outliers.   
+
+Both models have the same outcome from the diagnostic plots. All assumptions are good but the QQ-Plots are pretty bad since it veers off in the top-right corner.
+
+
+***
+# Models with Only Per Capita
+```{r}
+# create model
+mod1.percaponly <- lm(InitialClaims.Lag.PerCapita ~ Unemployment.PerCapita + Employment.PerCapita + LaborForce.PerCapita, data = data.2009.nocovid)
+
+# check model
+summary(mod1.percaponly)
+```
+
+
+***
+# FINAL MODEL
+After spending weeks searching for the best model to forecast Initial Claims in SC, I believe the best model will be using data from 2001 (excludes S&P500) and predict log(InitialClaims Per Capita) with the predictors: Unemployment Per Capita, Labor Force Per Capita, and Layoffs. 
+
+## Create Model
+```{r}
+# model
+final.model <- lm(InitialClaims.Lag.PerCapita ~ Unemployment.PerCapita + LaborForce.PerCapita + Layoffs, data = data.2001)
+
+# check model
+summary(final.model)
+```
+
+```{r}
+# plot diagnostic plots
+par(mfrow=c(2,2))
+plot(final.model)
+
+# check for outliers
+par(mfrow=c(1,1))
+plot(final.model, 4)
+```
+
+```{r}
+# plot diagnostic plots
+par(mfrow=c(2,2))
+plot(final.model)
+
+# check for outliers
+par(mfrow=c(1,1))
+plot(final.model, 4)
+```
+
+```{r}
+# check vif values
+print(vif(final.model))
+```
+
+```{r}
+# confidence intervals
+confint(final.model)
+```
+
+This Model has an adjusted $R^2 = 0.7841$ which is very good and comparable to some of the best models we have tested. This model does not suffer any issues with multicollinearity like many others with vif values all well below 5. This is despite Unemployment and Labor Force having a correlation of 0.54. The diagnostic plots look very good for this model as well. There are some values in the model that appear to cause some issues (such as 231, 12, 6), but they are only a few points out of many.
+
+
+## Checking the Model's Predictions
+```{r}
+# set seed
+set.seed(112233)
+
+# split the data (70-30)
+train.indices <- createDataPartition(data.2001$InitialClaims.Lag.PerCapita, p = 0.7, list = FALSE)
+
+train.data <- data.2001[train.indices, ]
+test.data <- data.2001[-train.indices, ]
+
+# create training model
+training.model <- lm(log(InitialClaims.Lag.PerCapita) ~ Unemployment.PerCapita + LaborForce.PerCapita + Layoffs, data = train.data)
+
+# create predictions
+training.model.pred <- predict(training.model, newdata = test.data)
+
+# MSE and RMSE
+MSE <- mean((test.data$InitialClaims.Lag.PerCapita - training.model.pred)^2)
+RMSE <- sqrt(MSE)
+
+print(MSE)
+print(RMSE)
+
+# plot predictions
+ggplot(test.data, aes(x = log(InitialClaims.Lag.PerCapita), y = training.model.pred)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+  labs(title = "Predicted vs Actual",
+       x = "Actual Values",
+       y = "Predicted Values")
+```
+
+
+why is it negative??
+
+graph predicted over time
+graph actual over time
+
+## Final Model Explanation
+$$log(InitialClaimsPerCapita) = -16.56 + 18.58(UnemploymentPerCapita) + 18.94(LaborForcePerCapita) + 0.0009(LayoffsUS)$$    
+
+All coefficients are significantly positive meaning that as unemployment and labor force per capita in SC and layoffs in the US rise, then Initial Claims per capita for the following month will rise. 
+
+
+
+
+
+***
+# TESTING
+## Test Random Predictions
+```{r}
+test.mod <- lm(log(InitialClaims.Lag.PerCapita) ~ Unemployment.PerCapita + LaborForce.PerCapita + Layoffs + SP500, data = data.2001)
+
+# test.mod.step <- step(test.mod, direction = "both", trace = F)
+
+summary(test.mod)
+
+par(mfrow=c(2,2))
+plot(test.mod)
+```
+
+```{r}
+print(vif(test.mod))
+```
+
+## Plot of Data
+```{r}
+# create plot of initial claims % change
+ggplot(data, aes(x = Date, y = InitialClaims.Per)) +
+  geom_line() +
+  labs(title = "Initial Claims Percentage Change Over Time",
+       x = "Date",
+       y = "Initial Claims Percentage Change") +
+  ylim(-100, 100) +
+  theme_minimal()
+```
+
+```{r}
+# plot lagged claims
+ggplot(data, aes(x = Date, y = InitialClaims.Lag)) +
+  geom_line() +
+  labs(title = "Initial Claims Over Time (Lagged)",
+       x = "Date",
+       y = "Initial Claims") +
+  xlim(as.Date("2008-01-01"), as.Date("2019-01-01")) +
+  ylim(0, 100000) +
+  theme_minimal()
+```
+
+```{r}
+# plot 
+plot(log(data.1981$InitialClaims.Lag.PerCapita), data.1981$SP500)
+```
+
+```{r}
+# plot
+plot(data.2001$LaborForce.PerCapita, data.2001$Unemployment.PerCapita)
+```
+
+```{r}
+# plot 
+plot(log(data.2009$InitialClaims.Lag.PerCapita), data.2009$SP500_Health)
+```
+
+```{r}
+# Calculate and reshape the correlation matrix
+cor_long <- melt(cor(data.2009.nocovid[, c("Unemployment.PerCapita", "Employment.PerCapita", 
+                                           "LaborForce.PerCapita", "SP500", "SP500_Health", 
+                                           "SP500_Energy", "LFPR", "Hires", "Separations", 
+                                           "Quits", "Layoffs", "Openings")], use = "complete.obs"))
+
+# Assign color groups based on correlation thresholds
+cor_long$color_group <- ifelse(cor_long$value > 0.7, "red",
+                         ifelse(cor_long$value < -0.7, "blue", "white"))
+
+# Plot
+ggplot(cor_long, aes(x = Var1, y = Var2, fill = color_group)) +
+  geom_tile(color = "grey80") +
+  scale_fill_manual(values = c("red" = "red", "blue" = "blue", "white" = "white")) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+    axis.text.y = element_text(size = 10),
+    axis.title.x = element_text(size = 12),
+    axis.title.y = element_text(size = 12)
+  ) +
+  labs(
+    title = "Correlation Matrix Heatmap (|r| > 0.7 Highlighted)",
+    x = "", y = "", fill = "Color"
+  )
+```
+
+```{r}
+# Calculate and reshape the correlation matrix
+cor_long <- melt(cor(data.2001[, c("Unemployment.PerCapita", "Employment.PerCapita", 
+                                           "LaborForce.PerCapita", "LFPR", "Hires", "Separations", 
+                                           "Quits", "Layoffs", "Openings")], use = "complete.obs"))
+
+# Assign color groups based on correlation thresholds
+cor_long$color_group <- ifelse(cor_long$value > 0.7, "red",
+                         ifelse(cor_long$value < -0.7, "blue", "white"))
+
+# Plot
+ggplot(cor_long, aes(x = Var1, y = Var2, fill = color_group)) +
+  geom_tile(color = "grey80") +
+  scale_fill_manual(values = c("red" = "red", "blue" = "blue", "white" = "white")) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+    axis.text.y = element_text(size = 10),
+    axis.title.x = element_text(size = 12),
+    axis.title.y = element_text(size = 12)
+  ) +
+  labs(
+    title = "Correlation Matrix Heatmap (|r| > 0.7 Highlighted)",
+    x = "", y = "", fill = "Color"
+  )
+```
+
+```{r}
+head(data)
+```
+
+
+
+
+
+notes:
+
+check general trends on sc claims
+maybe try to forecast ahead
+outlier study
+check predictions for sp500 predictors on response variable

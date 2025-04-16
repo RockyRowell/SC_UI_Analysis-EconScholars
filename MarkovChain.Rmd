@@ -1,0 +1,183 @@
+---
+title: "Markov Chain"
+author: "Rocky Rowell"
+date: "2025-04-09"
+output: html_document
+---
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(tidyverse); library(scales); library(dplyr)
+library(markovchain); library(zoo); library(ggplot2)
+library(ggthemes)
+```
+
+***
+# Comparing US States Unemployment Insurance Claims Transition Probability Matrices
+The goal of this project is to compare the transition probability matrices of different states' unemployment insurance claims. 
+
+## Data
+The data used in this project is from the US Department of Labor and includes the number of initial claims for each state from 1971 to 2024. The data is transformed into quarterly data in order to account for rapid month to month fluctuations. 
+
+
+
+
+
+# Data Collection and Preparation
+## Load in Claims Data and Fix It
+```{r}
+# for this file we will have to restart with the raw claims data in order to use multiple states
+
+# load in claims data
+claims <- read.csv("Datasets/ClaimsData/ar5159.csv", header = T)
+
+# fix date column
+colnames(claims)[colnames(claims) == "rptdate"] <- "Date"
+claims$Date <- as.Date(claims$Date, format = "%m/%d/%Y")
+
+# rename state column (personal preference)
+claims$State <- as.character(claims$st)
+
+# create InitialClaims column by combining c2-c7
+claims <- claims %>%
+  mutate(InitialClaims = c2 + c3 + c4 + c5 + c6 + c7) %>%
+  select(Date, State, InitialClaims) # drop unnecessary columns
+
+# drop 2020, 2021 and 2025 from dataset to avoid outlier issues
+claims <- claims %>%
+  filter(!year(Date) %in% c(2020, 2021, 2025))
+
+# make data quarterly to avoid frequent fluctuations
+claims.quarterly <- claims %>%
+  group_by(State, year_quarter = as.yearqtr(Date)) %>%
+  summarise(InitialClaims = sum(InitialClaims, na.rm = TRUE), .groups = "drop") %>% # sum all claims for quarter
+  mutate(Date = as.Date(year_quarter, frac = 1)) %>%
+  select(State, Date, InitialClaims)
+```
+
+## Function to Collect Data
+```{r}
+# this function will be used to collect the data for a given state
+
+CollectData <- function(state) {
+  # filter dataset for the matching state
+  data <- claims.quarterly %>%
+    filter(State == state)
+  
+  # return filtered dataset
+  return(data)
+} 
+```
+
+## Function to Graph Initial Claims
+```{r}
+# this function will be used to graph the initial claims for a given state
+
+GraphClaims <- function(data) {
+  ggplot(data, aes(x = Date, y = InitialClaims)) +
+    geom_line() +
+    scale_y_continuous(labels = comma) +
+    labs(title = "Initial Claims over Time (excluding 2020, 2021)", x = " ", y = " ") +
+    theme_minimal() + 
+    geom_hline(yintercept = mean(data$InitialClaims), linetype="dashed", color = "red")
+}
+```
+
+
+***
+# Create Markov Chain
+## Function to Create Markov Chain
+```{r}
+# this function will be used to create the markov chain for a given state (data must be filtered first)
+
+CreateMarkovChain <- function(data) {
+  # find quantiles
+  quantiles <- quantile(data$InitialClaims, probs = c(0.33, 0.66))
+  
+  # add quantiles to dataset
+  data <- data %>%
+    mutate(
+      InitialClaimsQuantile = case_when(
+        InitialClaims <= quantiles[1] ~ "Low",
+        InitialClaims > quantiles[1] & InitialClaims <= quantiles[2] ~ "Medium",
+        InitialClaims > quantiles[2] ~ "High"
+      )
+    )
+  
+  # create vector of states
+  states <- data$InitialClaimsQuantile
+  
+  # fit the markov chain model
+  mc_fit <- markovchainFit(data = states)
+  mc <- mc_fit$estimate
+  
+  # vector of correct order (MC doesn't want to do the correct order)
+  order <- c("Low", "Medium", "High")
+  
+  # reorder the matrix
+  mc_ordered <- new("markovchain",
+                    states = order,
+                    transitionMatrix = mc@transitionMatrix[order, order],
+                    name = "UI Claims (Ordered)")
+  
+  # print all results of the markov chain
+  print("Summary:")
+  summary(mc_ordered)
+  print("Transition Matrix:")
+  print(mc_ordered)
+  print("Steady-State Probabilities:")
+  print(steadyStates(mc_ordered))
+  
+  # plot
+  plot(mc_ordered)
+}
+```
+
+
+***
+# Run Markov Chain on Selected States
+## South Carolina
+```{r}
+sc <- CollectData("SC")
+CreateMarkovChain(sc)
+```
+
+## North Carolina
+```{r}
+nc <- CollectData("NC")
+CreateMarkovChain(nc)
+```
+
+## Georgia
+```{r}
+ga <- CollectData("GA")
+CreateMarkovChain(ga)
+```
+
+
+
+
+***
+# Is Population an Issue
+## South Carolina Claims
+```{r}
+# plot of sc claims
+GraphClaims(sc)
+```
+
+## North Carolina Claims
+```{r}
+# plot of sc claims
+GraphClaims(nc)
+```
+
+## Georgia Claims
+```{r}
+# plot of sc claims
+GraphClaims(ga)
+```
+
+
+
+
+
+

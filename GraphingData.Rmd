@@ -1,0 +1,124 @@
+---
+title: "Graphing Data"
+author: "Rocky Rowell"
+date: "2025-04-09"
+output: html_document
+---
+
+# Libraries
+```{r message=FALSE, warning=FALSE}
+library(ggplot2); library(tidyverse); library(ggthemes); library(scales)
+library(lubridate); library(zoo)
+```
+
+
+***
+# Data
+## Load in Data
+```{r}
+# data is from the CleaningData.rmd file that combines all datasets used into one final dataset
+data <- read.csv("Datasets/FinalData.csv", header=T)
+
+# convert date to date format
+data$Date <- as.Date(data$Date)
+
+# create recipiciency rate
+data <- data %>%
+  mutate(RecipiencyRate = InitialClaims / Unemployment)
+
+# check data
+tail(data, 10)
+```
+
+## Reshape Data into quarterly data
+```{r}
+
+```
+
+
+***
+# Graphing Data
+## Initial Claims over time
+```{r}
+ggplot(data, aes(x=Date, y=InitialClaims)) +
+  geom_line(color = "steelblue") +
+  labs(title="Initial Claims Over Time", x="", y="") +
+  scale_y_continuous(labels = comma) +
+  theme_minimal() +
+  # add recession shading
+  geom_rect(aes(xmin=as.Date("2007-12-01"), xmax=as.Date("2009-06-01"), ymin=-Inf, ymax=Inf), fill="salmon", alpha=0.005) +
+  geom_rect(aes(xmin=as.Date("2020-02-01"), xmax=as.Date("2020-05-01"), ymin=-Inf, ymax=Inf), fill="salmon", alpha=0.005) +
+  geom_rect(aes(xmin=as.Date("2011-01-01"), xmax=as.Date("2012-01-01"), ymin=-Inf, ymax=Inf), fill="steelblue", alpha=0.005)
+```
+
+### Zoom in
+```{r}
+ggplot(data, aes(x=Date, y=InitialClaims)) +
+  geom_line(color = "steelblue") +
+  labs(title="Initial Claims Over Time (Zoomed In)", x="", y="") +
+  ylim(0,150000) +
+  theme_minimal() + 
+  # add recession shading
+  geom_rect(aes(xmin=as.Date("2007-12-01"), xmax=as.Date("2009-06-01"), ymin=-Inf, ymax=Inf), fill="salmon", alpha=0.005) +
+  geom_rect(aes(xmin=as.Date("2020-02-01"), xmax=as.Date("2020-05-01"), ymin=-Inf, ymax=Inf), fill="salmon", alpha=0.005) +
+  geom_rect(aes(xmin=as.Date("2011-01-01"), xmax=as.Date("2012-01-01"), ymin=-Inf, ymax=Inf), fill="steelblue", alpha=0.005)
+```
+
+
+## Initial Claims Recipiency Rate Over Time
+```{r}
+ggplot(data, aes(x=Date, y=RecipiencyRate)) +
+  geom_line(color = "steelblue") +
+  labs(title="UI Recipiency Amongst Unemployed Over Time", x="", y="") +
+  ylim(0,1) +
+  xlim(as.Date("1976-01-01"), as.Date("2024-12-31")) +
+  theme_minimal() + 
+  # add recession shading
+  geom_rect(aes(xmin=as.Date("2007-12-01"), xmax=as.Date("2009-06-01"), ymin=-Inf, ymax=Inf), fill="salmon", alpha=0.005) +
+  geom_rect(aes(xmin=as.Date("2020-02-01"), xmax=as.Date("2020-05-01"), ymin=-Inf, ymax=Inf), fill="salmon", alpha=0.005) +
+  geom_rect(aes(xmin=as.Date("2011-01-01"), xmax=as.Date("2012-01-01"), ymin=-Inf, ymax=Inf), fill="steelblue", alpha=0.005)
+```
+
+
+## Initial Claims Per Capita Over Time
+```{r}
+ggplot(data, aes(x=Date, y=InitialClaims.PerCapita)) +
+  geom_line(color = "steelblue") +
+  labs(title="Initial Claims Per Capita Over Time", x="", y="") +
+  scale_y_continuous(labels = comma) +
+  theme_minimal() +
+  # add recession shading
+  geom_rect(aes(xmin=as.Date("2007-12-01"), xmax=as.Date("2009-06-01"), ymin=-Inf, ymax=Inf), fill="salmon", alpha=0.005) +
+  geom_rect(aes(xmin=as.Date("2020-02-01"), xmax=as.Date("2020-05-01"), ymin=-Inf, ymax=Inf), fill="salmon", alpha=0.005) +
+  geom_rect(aes(xmin=as.Date("2011-01-01"), xmax=as.Date("2012-01-01"), ymin=-Inf, ymax=Inf), fill="steelblue", alpha=0.005)
+```
+
+
+### Zoom In
+```{r}
+ggplot(data, aes(x=Date, y=InitialClaims.PerCapita)) +
+  geom_line(color = "steelblue") +
+  labs(title="Initial Claims Per Capita Over Time (Zoomed In)", x="", y="") +
+  ylim(0,0.05) +
+  theme_minimal() +
+  # add recession shading
+  geom_rect(aes(xmin=as.Date("2007-12-01"), xmax=as.Date("2009-06-01"), ymin=-Inf, ymax=Inf), fill="salmon", alpha=0.005) +
+  geom_rect(aes(xmin=as.Date("2020-02-01"), xmax=as.Date("2020-05-01"), ymin=-Inf, ymax=Inf), fill="salmon", alpha=0.005) +
+  geom_rect(aes(xmin=as.Date("2011-01-01"), xmax=as.Date("2012-01-01"), ymin=-Inf, ymax=Inf), fill="steelblue", alpha=0.005)
+```
+
+
+
+
+```{r}
+plot(dataQuarterlyNo2020$InitialClaims.PerCapita, dataQuarterlyNo2020$InitialClaims)
+plot(data$Population, data$InitialClaims)
+plot(data$Population, data$InitialClaims.PerCapita)
+plot(data$Population, data$InitialClaims)
+```
+
+
+
+
+take model, split in half, predict second half
+

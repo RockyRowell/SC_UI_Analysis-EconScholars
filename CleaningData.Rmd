@@ -1,0 +1,480 @@
+---
+title: "Cleaning Data and Creating Main Dataset"
+author: "Rocky Rowell"
+date: "2025-03-15"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# Libraries
+```{r message=FALSE, warning=FALSE}
+library(dplyr)
+library(lubridate)
+library(tidyr)
+```
+
+***
+# Population Data
+```{r}
+# load data
+pop <- read.csv("Datasets/scPopulation.csv", header = T)
+
+# make the data match other datasets
+pop.expanded <- pop %>%
+  rowwise() %>%
+  mutate(Date = list(seq(ymd(paste0(Year, "-01-01")), ymd(paste0(Year, "-12-01")), by = "month") %>% 
+                       ceiling_date("month") - days(1))) %>%
+  unnest(Date) %>%
+  select(Date, Population) %>%
+  arrange(Date)
+
+# make population an integer column
+pop.expanded$Population <- gsub(",", "", pop.expanded$Population) # Remove commas
+pop.expanded$Population <- as.numeric(pop.expanded$Population)
+
+# check data
+print(pop.expanded)
+```
+
+
+***
+# UI Claims Data
+## Overview
+Claims Data is gathered from the ETA 5159 report from SCDEW. I've used c1 as the column for intial claims in the past but I believe c2-c7 is the better choice. From this data, we will create a lagged claims column and a lagged claims percentage change column. The data originates in 1971.
+
+## Clean Claims Data
+```{r}
+# gather data
+claims <- read.csv("Datasets/ClaimsData/ar5159.csv", header = T)
+
+# fix date column
+colnames(claims)[colnames(claims) == "rptdate"] <- "Date"
+claims$Date <- as.Date(claims$Date, format = "%m/%d/%Y")
+
+# get rid of all states but SC
+claims <- filter(claims, st=="SC")
+
+# join population data
+claims <- claims %>% 
+  left_join(pop.expanded, by = "Date")
+
+# combine c2-c7 and drop extra columns
+claims <- claims %>%
+  mutate(InitialClaims = c2 + c3 + c4 + c5 + c6 + c7) %>%
+  select(Date, Population, InitialClaims)
+
+# create Initial Claims per Capita
+claims <- claims %>%
+  mutate(InitialClaims.PerCapita = InitialClaims / Population)
+
+# create Intial Claims % change
+claims <- claims %>%
+  arrange(Date) %>%  # check for chronological order
+  mutate(InitialClaims.PerChange = (InitialClaims / lag(InitialClaims) - 1) * 100)
+
+# create lagged claims and lagged claims % change
+claims <- claims %>%
+  arrange(Date) %>%  # check for chronological order
+  mutate(InitialClaims.Lag = lead(InitialClaims),
+         InitialClaims.Lag.PerCapita = lead(InitialClaims.PerCapita),
+         InitialClaims.Lag.PerChange = (lead(InitialClaims) / InitialClaims - 1) * 100)
+
+# create lagged 2 month claims and lagged 2 month claims % change
+claims <- claims %>%
+  arrange(Date) %>%  # check for chronological order
+  mutate(InitialClaims.Lag2 = lead(InitialClaims, 2),
+         InitialClaims.Lag2.PerCapita = lead(InitialClaims.PerCapita, 2),
+         InitialClaims.Lag2.PerChange = (lead(InitialClaims, 2) / InitialClaims.Lag - 1) * 100)
+
+# check data
+tail(claims, 5)
+```
+
+## Clean Demographic Data
+```{r}
+# gather data
+demo <- read.csv("Datasets/ClaimsData/ar203.csv", header = T)
+
+# fix date column
+colnames(demo)[colnames(demo) == "rptdate"] <- "Date"
+demo$Date <- as.Date(demo$Date, format = "%m/%d/%Y")
+
+# get rid of all states but SC
+demo <- filter(demo, st=="SC")
+
+# create a total column
+demo$total <- demo$c2 + demo$c3 + demo$c4
+```
+
+### Make Percentage Columns
+```{r}
+# create percentage of total columns and then perform regression
+# gender
+demo$c2_per <- demo$c2 / demo$total
+demo$c3_per <- demo$c3 / demo$total
+
+# age
+demo$c12_per <- demo$c12 / demo$total
+demo$c13_per <- demo$c13 / demo$total
+demo$c14_per <- demo$c14 / demo$total
+demo$c15_per <- demo$c15 / demo$total
+demo$c16_per <- demo$c16 / demo$total
+demo$c17_per <- demo$c17 / demo$total
+demo$c18_per <- demo$c18 / demo$total
+demo$c19_per <- demo$c19 / demo$total
+
+# race
+demo$c43_per <- demo$c43 / demo$total
+demo$c44_per <- demo$c44 / demo$total
+demo$c45_per <- demo$c45 / demo$total
+demo$c46_per <- demo$c46 / demo$total
+demo$c47_per <- demo$c47 / demo$total
+
+# industry
+demo$c49_per <- demo$c49 / demo$total
+demo$c50_per <- demo$c50 / demo$total
+demo$c51_per <- demo$c51 / demo$total
+demo$c52_per <- demo$c52 / demo$total
+demo$c53_per <- demo$c53 / demo$total
+demo$c54_per <- demo$c54 / demo$total
+demo$c55_per <- demo$c55 / demo$total
+demo$c56_per <- demo$c56 / demo$total
+demo$c57_per <- demo$c57 / demo$total
+demo$c58_per <- demo$c58 / demo$total
+demo$c59_per <- demo$c59 / demo$total
+demo$c60_per <- demo$c60 / demo$total
+demo$c61_per <- demo$c61 / demo$total
+demo$c62_per <- demo$c62 / demo$total
+demo$c63_per <- demo$c63 / demo$total
+demo$c64_per <- demo$c64 / demo$total
+demo$c65_per <- demo$c65 / demo$total
+demo$c66_per <- demo$c66 / demo$total
+demo$c67_per <- demo$c67 / demo$total
+demo$c68_per <- demo$c68 / demo$total
+
+# check data
+tail(demo, 5)
+```
+
+
+***
+# Laus Data
+## Overview
+This data is gathered from LAUS and provides employment, unemployment and labor force numbers in SC from 1976. 
+
+## Load in Data
+```{r}
+# gather data
+unemployment <- read.csv("Datasets/Laus/UnemploymentSC.csv", header=T)
+employment <- read.csv("Datasets/Laus/EmploymentSC.csv", header=T)
+laborforce <- read.csv("Datasets/Laus/LaborForceSC.csv", header=T)
+
+# rename "Value"
+unemployment <- unemployment %>%
+  rename(Unemployment = Value)
+
+employment <- employment %>%
+  rename(Employment = Value)
+
+laborforce <- laborforce %>%
+  rename(LaborForce = Value)
+```
+
+## Fix Date Columns
+```{r}
+# list of all months
+month_map <- c("M01" = 1, "M02" = 2, "M03" = 3, "M04" = 4, "M05" = 5, "M06" = 6,
+               "M07" = 7, "M08" = 8, "M09" = 9, "M10" = 10, "M11" = 11, "M12" = 12)
+
+# convert months to a number
+unemployment$Month <- month_map[unemployment$Period]
+employment$Month <- month_map[employment$Period]
+laborforce$Month <- month_map[laborforce$Period]
+
+# create date column
+unemployment$Date <- as.Date(paste(unemployment$Year, unemployment$Month, "01", sep = "-"))
+employment$Date <- as.Date(paste(employment$Year, employment$Month, "01", sep = "-"))
+laborforce$Date <- as.Date(paste(laborforce$Year, laborforce$Month, "01", sep = "-"))
+
+# make date be the last day of the month
+unemployment$Date <- ceiling_date(unemployment$Date, "month") - days(1)
+employment$Date <- ceiling_date(employment$Date, "month") - days(1)
+laborforce$Date <- ceiling_date(laborforce$Date, "month") - days(1)
+```
+
+## Create Percentage Change Columns
+```{r}
+# add new % change column to every df individualy
+unemployment <- unemployment %>%
+  arrange(Date) %>%  # check for chronological order
+  mutate(Unemployment.Per = (Unemployment / lag(Unemployment) - 1) * 100)
+
+employment <- employment %>%
+  arrange(Date) %>%  # check for chronological order
+  mutate(Employment.Per = (Employment / lag(Employment) - 1) * 100)
+
+laborforce <- laborforce %>%
+  arrange(Date) %>%  # check for chronological order
+  mutate(LaborForce.Per = (LaborForce / lag(LaborForce) - 1) * 100)
+```
+
+## Combine Datasets
+```{r}
+# create Laus dataset with all numbers
+Laus <- unemployment %>%
+  select(Date, Unemployment, Unemployment.Per) %>%  # we only want to keep these two columns
+  full_join(employment %>% select(Date, Employment, Employment.Per), by = "Date") %>%
+  full_join(laborforce %>% select(Date, LaborForce, LaborForce.Per), by = "Date")
+
+# create unemployment rate
+Laus <- Laus %>%
+  mutate(UnemploymentRate = Unemployment / LaborForce * 100)
+
+# create unemmployment rate percentage change
+Laus <- Laus %>%
+  arrange(Date) %>%  # check for chronological order
+  mutate(UnemploymentRate.Per = (UnemploymentRate / lag(UnemploymentRate) - 1) * 100)
+```
+
+## Make Per Capita Columns
+```{r}
+# join laus data with population data
+Laus <- Laus %>%
+  left_join(pop.expanded, by = "Date")
+
+# create per capita columns for Unemployment, Employment, and Labor Force
+Laus <- Laus %>%
+  mutate(Unemployment.PerCapita = Unemployment / Population,
+         Employment.PerCapita = Employment / Population,
+         LaborForce.PerCapita = LaborForce / Population)
+
+# keep desired columns and organize
+Laus <- Laus %>%
+  select(Date, Unemployment, Unemployment.Per, Unemployment.PerCapita,
+         Employment, Employment.Per, Employment.PerCapita, 
+         LaborForce, LaborForce.Per, LaborForce.PerCapita,
+         UnemploymentRate, UnemploymentRate.Per)
+
+# check Laus data
+tail(Laus, 5)
+```
+
+
+***
+# SP500 Data
+## Overview
+This data involves SP500 data, and some of its indices, from the WSJ. It will put in a monthly format where the value is the final close value from the last trading day of each month. However, we will change all dates to be the last day of the month, even if the last trading day isn't the last day of the month, so it can be joined with other datasets.
+
+## Clean SP500 Dataset
+```{r}
+# gather data
+sp500 <- read.csv("Datasets/SP500/sp500.csv") %>%
+  mutate(Date = mdy(Date))
+
+# last trading day of each month
+sp500_last_trading <- sp500 %>%
+  group_by(YearMonth = floor_date(Date, "month")) %>%
+  slice_max(Date) %>%
+  ungroup()
+
+# dataframe with the actual last day of each month
+sp500_monthly <- sp500_last_trading %>%
+  mutate(Date = ceiling_date(YearMonth, "month") - days(1)) %>%
+  select(-YearMonth)  # Remove helper column
+
+# drop extra columns
+sp500_monthly <- sp500_monthly %>%
+  select(-Open, -High, -Low)
+
+# create percentage change column
+sp500_monthly <- sp500_monthly %>%
+  arrange(Date) %>%  # check for chronological order
+  mutate(SP500.Per = (Close / lag(Close) - 1) * 100)
+
+# rename Close
+sp500_monthly <- sp500_monthly %>%
+  rename(SP500 = Close)
+```
+
+
+## Clean SP500 Healthcare Index 
+```{r}
+# gather data
+sp500.health <- read.csv("Datasets/SP500/sp500_healthcare.csv") %>%
+  mutate(Date = mdy(Date))
+
+# last trading day of each month
+sp500.health_last_trading <- sp500.health %>%
+  group_by(YearMonth = floor_date(Date, "month")) %>%
+  slice_max(Date) %>%
+  ungroup()
+
+# dataframe with the actual last day of each month
+sp500.health_monthly <- sp500.health_last_trading %>%
+  mutate(Date = ceiling_date(YearMonth, "month") - days(1)) %>%
+  select(-YearMonth)  # Remove helper column
+
+# drop extra columns
+sp500.health_monthly <- sp500.health_monthly %>%
+  select(-Open, -High, -Low)
+
+# create percentage change column
+sp500.health_monthly <- sp500.health_monthly %>%
+  arrange(Date) %>%  # check for chronological order
+  mutate(SP500_Health.Per = (Close / lag(Close) - 1) * 100)
+
+# rename Close
+sp500.health_monthly <- sp500.health_monthly %>%
+  rename(SP500_Health = Close)
+```
+
+
+## Clean SP500 Energy Index 
+```{r}
+# gather data
+sp500.energy <- read.csv("Datasets/SP500/sp500_energy.csv") %>%
+  mutate(Date = mdy(Date))
+
+# last trading day of each month
+sp500.energy_last_trading <- sp500.energy %>%
+  group_by(YearMonth = floor_date(Date, "month")) %>%
+  slice_max(Date) %>%
+  ungroup()
+
+# dataframe with the actual last day of each month
+sp500.energy_monthly <- sp500.energy_last_trading %>%
+  mutate(Date = ceiling_date(YearMonth, "month") - days(1)) %>%
+  select(-YearMonth)  # Remove helper column
+
+# drop extra columns
+sp500.energy_monthly <- sp500.energy_monthly %>%
+  select(-Open, -High, -Low)
+
+# create percentage change column
+sp500.energy_monthly <- sp500.energy_monthly %>%
+  arrange(Date) %>%  # check for chronological order
+  mutate(SP500_Energy.Per = (Close / lag(Close) - 1) * 100)
+
+# rename Close
+sp500.energy_monthly <- sp500.energy_monthly %>%
+  rename(SP500_Energy = Close)
+```
+
+
+## Combine DF's into one main DF
+```{r}
+# join df's by date
+SP500.FINAL <- sp500_monthly %>%
+  full_join(sp500.health_monthly, by = "Date") %>%
+  full_join(sp500.energy_monthly, by = "Date")
+
+# check values
+head(SP500.FINAL, 5)
+```
+
+
+***
+# FRED DATA
+## Overview
+This is data from FRED that gives us various job statistics in the US.
+
+## Clean FRED Data
+```{r}
+# gather data
+openings <- read.csv("Datasets/FRED-Jobs/openings.csv", header=T)
+hires <- read.csv("Datasets/FRED-Jobs/hires.csv", header=T)
+separations <- read.csv("Datasets/FRED-Jobs/separations.csv", header=T)
+quits <- read.csv("Datasets/FRED-Jobs/quits.csv", header=T)
+layoffs <- read.csv("Datasets/FRED-Jobs/layoffs.csv", header=T)
+lfpr <- read.csv("Datasets/FRED-Jobs/lfpr.csv", header=T)
+
+# rename columns for each dataset, fix dates, and add percentage change
+openings <- openings %>%
+  rename(Openings = JTSJOL) %>%
+  rename(Date = observation_date) %>%
+  mutate(Date = as.Date(Date, format = "%Y-%m-%d"),
+         Openings.Per = (Openings / lag(Openings) - 1) * 100)
+
+hires <- hires %>%
+  rename(Hires = JTSHIL) %>%
+  rename(Date = observation_date) %>%
+  mutate(Date = as.Date(Date, format = "%Y-%m-%d"),
+         Hires.Per = (Hires / lag(Hires) - 1) * 100)
+
+separations <- separations %>%
+  rename(Separations = JTSTSL) %>%
+  rename(Date = observation_date) %>%
+  mutate(Date = as.Date(Date, format = "%Y-%m-%d"),
+         Separations.Per = (Separations / lag(Separations) - 1) * 100)
+
+quits <- quits %>%
+  rename(Quits = JTSQUL) %>%
+  rename(Date = observation_date) %>%
+  mutate(Date = as.Date(Date, format = "%Y-%m-%d"),
+         Quits.Per = (Quits / lag(Quits) - 1) * 100)
+
+layoffs <- layoffs %>%
+  rename(Layoffs = JTSLDL) %>%
+  rename(Date = observation_date) %>%
+  mutate(Date = as.Date(Date, format = "%Y-%m-%d"),
+         Layoffs.Per = (Layoffs / lag(Layoffs) - 1) * 100)
+
+lfpr <- lfpr %>%
+  rename(LFPR = CIVPART) %>%
+  rename(Date = observation_date) %>%
+  mutate(Date = as.Date(Date, format = "%Y-%m-%d"),
+         LFPR.Per = (LFPR / lag(LFPR) - 1) * 100)
+
+# combine datasets
+FRED <- lfpr %>%
+  full_join(hires, by = "Date") %>%
+  full_join(separations, by = "Date") %>%
+  full_join(quits, by = "Date") %>%
+  full_join(layoffs, by = "Date") %>%
+  full_join(openings, by = "Date")
+
+# fix date to move back to last day of the last month
+FRED <- FRED %>%
+  mutate(Date = Date - days(1))
+
+# check data
+tail(FRED, 5)
+```
+
+
+
+***
+# Create Final Dataset
+```{r}
+# Join all datasets to UI Claims Dataset (some data doesn't go that far back)
+FinalData <- claims %>%
+  left_join(Laus, by = "Date") %>%
+  left_join(SP500.FINAL, by = "Date") %>%
+  left_join(FRED, by = "Date") %>%
+  left_join(demo, by = "Date")
+
+# check data
+tail(FinalData, 10)
+
+# export data to csv
+write.csv(FinalData, "Datasets/FinalData.csv", row.names = F)
+```
+
+Key Dates in Final Dataset:   
+- Claims data begins in 1971 and ends 2/2025    
+- Laus data begins in 1976 and ends 12/2024   
+- SP500 data begins in 1980 and ends 3/2025   
+- FRED data begins in 2000 and ends 12/2024   
+- SP500 Indices begins in 2009    
+    
+Also, LFPR dates back to 1948, but the FRED datasets goes back to 2000. Therefore if it needs to be used then it can be loaded in separately.   
+
+
+
+
+Use Initial Claims (nominal), Initial Claims per Capita, and Outlier Study
+Try No Lag % change and 2 month lag % change
+model initial claims to unemployment rate change
+include summary statistics of initial claims
+
