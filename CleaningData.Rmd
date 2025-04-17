@@ -91,72 +91,6 @@ claims <- claims %>%
 tail(claims, 5)
 ```
 
-## Clean Demographic Data
-```{r}
-# gather data
-demo <- read.csv("Datasets/ClaimsData/ar203.csv", header = T)
-
-# fix date column
-colnames(demo)[colnames(demo) == "rptdate"] <- "Date"
-demo$Date <- as.Date(demo$Date, format = "%m/%d/%Y")
-
-# get rid of all states but SC
-demo <- filter(demo, st=="SC")
-
-# create a total column
-demo$total <- demo$c2 + demo$c3 + demo$c4
-```
-
-### Make Percentage Columns
-```{r}
-# create percentage of total columns and then perform regression
-# gender
-demo$c2_per <- demo$c2 / demo$total
-demo$c3_per <- demo$c3 / demo$total
-
-# age
-demo$c12_per <- demo$c12 / demo$total
-demo$c13_per <- demo$c13 / demo$total
-demo$c14_per <- demo$c14 / demo$total
-demo$c15_per <- demo$c15 / demo$total
-demo$c16_per <- demo$c16 / demo$total
-demo$c17_per <- demo$c17 / demo$total
-demo$c18_per <- demo$c18 / demo$total
-demo$c19_per <- demo$c19 / demo$total
-
-# race
-demo$c43_per <- demo$c43 / demo$total
-demo$c44_per <- demo$c44 / demo$total
-demo$c45_per <- demo$c45 / demo$total
-demo$c46_per <- demo$c46 / demo$total
-demo$c47_per <- demo$c47 / demo$total
-
-# industry
-demo$c49_per <- demo$c49 / demo$total
-demo$c50_per <- demo$c50 / demo$total
-demo$c51_per <- demo$c51 / demo$total
-demo$c52_per <- demo$c52 / demo$total
-demo$c53_per <- demo$c53 / demo$total
-demo$c54_per <- demo$c54 / demo$total
-demo$c55_per <- demo$c55 / demo$total
-demo$c56_per <- demo$c56 / demo$total
-demo$c57_per <- demo$c57 / demo$total
-demo$c58_per <- demo$c58 / demo$total
-demo$c59_per <- demo$c59 / demo$total
-demo$c60_per <- demo$c60 / demo$total
-demo$c61_per <- demo$c61 / demo$total
-demo$c62_per <- demo$c62 / demo$total
-demo$c63_per <- demo$c63 / demo$total
-demo$c64_per <- demo$c64 / demo$total
-demo$c65_per <- demo$c65 / demo$total
-demo$c66_per <- demo$c66 / demo$total
-demo$c67_per <- demo$c67 / demo$total
-demo$c68_per <- demo$c68 / demo$total
-
-# check data
-tail(demo, 5)
-```
-
 
 ***
 # Laus Data
@@ -451,8 +385,7 @@ tail(FRED, 5)
 FinalData <- claims %>%
   left_join(Laus, by = "Date") %>%
   left_join(SP500.FINAL, by = "Date") %>%
-  left_join(FRED, by = "Date") %>%
-  left_join(demo, by = "Date")
+  left_join(FRED, by = "Date")
 
 # check data
 tail(FinalData, 10)
@@ -469,12 +402,4 @@ Key Dates in Final Dataset:
 - SP500 Indices begins in 2009    
     
 Also, LFPR dates back to 1948, but the FRED datasets goes back to 2000. Therefore if it needs to be used then it can be loaded in separately.   
-
-
-
-
-Use Initial Claims (nominal), Initial Claims per Capita, and Outlier Study
-Try No Lag % change and 2 month lag % change
-model initial claims to unemployment rate change
-include summary statistics of initial claims
 
