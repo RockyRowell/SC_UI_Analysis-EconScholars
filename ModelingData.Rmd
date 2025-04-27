@@ -846,7 +846,7 @@ After spending weeks searching for the best model to forecast Initial Claims in 
 ## Create Model
 ```{r}
 # model
-final.model <- lm(InitialClaims.Lag.PerCapita ~ Unemployment.PerCapita + LaborForce.PerCapita + Layoffs, data = data.2001)
+final.model <- lm(log(InitialClaims.Lag.PerCapita) ~ Unemployment.PerCapita + LaborForce.PerCapita + Layoffs, data = data.2001)
 
 # check model
 summary(final.model)
@@ -862,15 +862,6 @@ par(mfrow=c(1,1))
 plot(final.model, 4)
 ```
 
-```{r}
-# plot diagnostic plots
-par(mfrow=c(2,2))
-plot(final.model)
-
-# check for outliers
-par(mfrow=c(1,1))
-plot(final.model, 4)
-```
 
 ```{r}
 # check vif values
@@ -1048,14 +1039,3 @@ ggplot(cor_long, aes(x = Var1, y = Var2, fill = color_group)) +
 ```{r}
 head(data)
 ```
-
-
-
-
-
-notes:
-
-check general trends on sc claims
-maybe try to forecast ahead
-outlier study
-check predictions for sp500 predictors on response variable
