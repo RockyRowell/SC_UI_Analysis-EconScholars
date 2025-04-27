@@ -1,0 +1,148 @@
+---
+title: "Final Model"
+author: "Rocky Rowell"
+date: "2025-04-17"
+output: html_document
+---
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(tidyverse); library(ggplot2); library(ggthemes); library(lubridate); library(car); library(reshape2); library(caret)
+library(mgcv); library(gratia)
+```
+
+# Final Model
+After spending weeks searching for the best model to forecast Initial Claims in SC, I believe the best model will be using data from 2001 (excludes S&P500) and predict log(InitialClaims Per Capita) with the predictors: Unemployment Per Capita, Labor Force Per Capita, and Layoffs. 
+
+## Data
+```{r}
+# data is from the CleaningData.rmd file that combines all datasets used into one final dataset
+data <- read.csv("Datasets/FinalData.csv", header=T)
+
+# convert date to date format
+data$Date <- as.Date(data$Date)
+
+# subset of data starting in 2001
+data.2001 <- data %>%
+  filter(Date >= "2001-01-01",
+         !year(Date) %in% c(2020, 2025),
+         Date < "2024-12-31")
+
+# check data
+tail(data.2001, 10)
+```
+
+## Model Creation
+```{r}
+# model
+final.model <- lm(log(InitialClaims.Lag.PerCapita) ~ Unemployment.PerCapita + LaborForce.PerCapita + Layoffs, data = data.2001)
+
+# check model
+summary(final.model)
+```
+
+
+### Diagnostic Plots
+```{r}
+# plot diagnostic plots
+par(mfrow=c(2,2))
+plot(final.model)
+
+# check for outliers
+par(mfrow=c(1,1))
+plot(final.model, 4)
+```
+
+
+### Check Multicollinearity
+```{r}
+# check vif values
+print(vif(final.model))
+```
+
+
+### Check Confidence Intervals
+```{r}
+# confidence intervals
+confint(final.model)
+```
+
+
+## Check Model's Effectiveness at Predicting Initial Claims
+### Splitting into Training and Testing Data
+```{r}
+# set seed
+set.seed(112233)
+
+# split the data (70-30)
+train.indices <- createDataPartition(data.2001$InitialClaims.Lag.PerCapita, p = 0.7, list = FALSE)
+
+train.data <- data.2001[train.indices, ]
+test.data <- data.2001[-train.indices, ]
+
+# create training model
+training.model <- lm(log(InitialClaims.Lag.PerCapita) ~ Unemployment.PerCapita + LaborForce.PerCapita + Layoffs, data = train.data)
+
+# create predictions
+training.model.pred <- predict(training.model, newdata = test.data)
+
+# MSE and RMSE
+MSE <- mean((test.data$InitialClaims.Lag.PerCapita - training.model.pred)^2)
+RMSE <- sqrt(MSE)
+
+print(MSE)
+print(RMSE)
+
+# plot predictions
+ggplot(test.data, aes(x = log(InitialClaims.Lag.PerCapita), y = training.model.pred)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+  labs(title = "Predicted vs Actual",
+       x = "Actual Values",
+       y = "Predicted Values")
+```
+
+
+### Plotting Predicted Initial Claims over Actual Initial Claims
+```{r}
+# gather predictions
+predictions <- predict(final.model, newdata = data.2001)
+
+# fix corrections
+predictions <- exp(predictions)
+
+# make new variable in dataset for the predicted intial claims
+data.2001$PredictedInitialClaimsLaggedPerCapita <- predictions
+
+# Un-Lag the Predictions
+data.2001$PredictedInitialClaimsPerCapita <- lead(data.2001$PredictedInitialClaimsLaggedPerCapita, 1)
+
+# Un-Per Capita the Predictions
+data.2001$PredictedInitialClaims <- data.2001$PredictedInitialClaimsPerCapita * data.2001$Population
+
+# check data
+print(data.2001, 5)
+```
+
+```{r}
+# create plot with both actual and predicted initial claims
+ggplot(data.2001, aes(x = Date)) +
+  # add recession bars
+  geom_rect(aes(xmin=as.Date("2001-3-01"), xmax=as.Date("2001-11-01"), ymin=-Inf, ymax=Inf), fill="red2", alpha=0.002) +
+  geom_rect(aes(xmin=as.Date("2007-12-01"), xmax=as.Date("2009-06-01"), ymin=-Inf, ymax=Inf), fill="red2", alpha=0.002) +
+  # add rest
+  geom_line(aes(y = InitialClaims, color = "Actual Initial Claims")) +
+  geom_line(aes(y = PredictedInitialClaims, color = "Predicted Initial Claims")) +
+  labs(title = "Actual vs Predicted Initial Claims", color = "color",
+       x = "Date",
+       y = "Initial Claims") +
+  scale_color_manual(values = c("Actual Initial Claims" = "steelblue4", "Predicted Initial Claims" = "salmon4")) +
+  theme_fivethirtyeight()
+```
+
+
+
+
+
+
+
+
+
