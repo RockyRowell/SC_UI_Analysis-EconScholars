@@ -1,31 +1,30 @@
 ---
-title: "Markov Chain"
+title: "Comparing the Volatility of Unemployment Insurance Claims Across States"
 author: "Rocky Rowell"
 date: "2025-04-09"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
-
 ```{r message=FALSE, warning=FALSE, include=FALSE}
 library(tidyverse); library(scales); library(dplyr)
 library(markovchain); library(zoo); library(ggplot2)
 library(ggthemes)
 ```
 
+This project is an additional analysis of unemployment insurance claims data, conducted as part of our broader research on unemployment insurance claims in South Carolina for the Economic Scholars program at the University of South Carolina. The entire project can be found on github at: https://github.com/RockyRowell/SC_UI_Analysis-EconScholars/tree/main
+
 ***
-# Comparing US States Unemployment Insurance Claims Transition Probability Matrices
-The goal of this project is to compare the transition probability matrices of different states' unemployment insurance claims. 
+# Comparing US States Unemployment Insurance Claims Volatility with Transition Probability Matrices
+The goal of this project is to compare the volatility of unemployment insurance initial claims across multiple states with a main focus on South Carolina. This will be done by creating a transition probability matrix of low, medium and high volume of unemployment insurance claims for every state of interest and comparing their difference in probabilities across groups. South Carolina's results will be compared to surrounding states such as North Carolina, Georgia, and Tennessee as well as more populous states such as California, Florida, and New York to get a good understanding of general trends across the US.
 
-## Data
-The data used in this project is from the US Department of Labor and includes the number of initial claims for each state from 1971 to 2024. The data is transformed into quarterly data in order to account for rapid month to month fluctuations. 
+***
+# Data
+The data used in this project is from the US Department of Labor and includes the data on unemployment insurance for each state from 1971 to 2024. Initial claims is calculated by summing up the c2 through c7 columns. The data is then transformed into quarterly data in order to account for rapid month to month fluctuations. Lastly, the years 2020, 2021 and 2025 are all dropped from the dataset. This decision was made based off of Q1 2025 being incomplete and 2020 and 2021 being such extreme outliers during COVID-19 recession that it raises questions over the data collection process for those observations.
 
-
-
-
-
-# Data Collection and Preparation
-## Load in Claims Data and Fix It
 ```{r}
-# for this file we will have to restart with the raw claims data in order to use multiple states
+# for this file we will have to restart with the original claims data 
+# in order to use multiple states
 
 # load in claims data
 claims <- read.csv("Datasets/ClaimsData/ar5159.csv", header = T)
@@ -49,12 +48,18 @@ claims <- claims %>%
 # make data quarterly to avoid frequent fluctuations
 claims.quarterly <- claims %>%
   group_by(State, year_quarter = as.yearqtr(Date)) %>%
-  summarise(InitialClaims = sum(InitialClaims, na.rm = TRUE), .groups = "drop") %>% # sum all claims for quarter
+  summarise(InitialClaims = sum(InitialClaims, na.rm = TRUE), .groups = "drop") %>%
   mutate(Date = as.Date(year_quarter, frac = 1)) %>%
   select(State, Date, InitialClaims)
 ```
 
-## Function to Collect Data
+***
+# Functions
+There are 3 main functions created in this project with the goals of collecting data, creating the markov chains and graphing the data.
+
+## Collect Data Function
+The first function is used to collect all the data for a specified state. Since we are making separate transition probability matrices for each state, this function will be used to filter the dataset for the state of interest by taking in the state abbreviation.
+
 ```{r}
 # this function will be used to collect the data for a given state
 
@@ -68,26 +73,30 @@ CollectData <- function(state) {
 } 
 ```
 
-## Function to Graph Initial Claims
+## Graph Claims Function
+This function is used to graph the initial claims of a specified state. This was created in order to analyze any potential population growth issues on the nominal initial claims values for a given state.
+
 ```{r}
 # this function will be used to graph the initial claims for a given state
 
 GraphClaims <- function(data) {
   ggplot(data, aes(x = Date, y = InitialClaims)) +
     geom_line() +
-    scale_y_continuous(labels = comma) +
-    labs(title = "Initial Claims over Time (excluding 2020, 2021)", x = " ", y = " ") +
-    theme_minimal() + 
-    geom_hline(yintercept = mean(data$InitialClaims), linetype="dashed", color = "red")
+    geom_smooth(method = "lm", se = FALSE, color = "red", linetype = "dashed") + 
+    scale_y_continuous(labels = scales::comma) +
+    labs(title = "Initial Claims over Time (excluding 2020, 2021)", 
+         x = "", y = "") +
+    theme_minimal()
 }
 ```
 
 
-***
-# Create Markov Chain
-## Function to Create Markov Chain
+## Create Markov Chain Function
+This function takes in the data of a specific state and creates the transition probability matrix. First, the data is split into 3 quantiles (low, medium and high) by finding the split points and assigning the proper value to each row. Then, a vector of states is created which is used to fit the markov chain model. Finally, the transition matrix is reordered, printed and plotted. This function shows all the relevant details about the matrix.
+
 ```{r}
-# this function will be used to create the markov chain for a given state (data must be filtered first)
+# this function will be used to create the markov chain 
+# for a given state (data must be filtered first)
 
 CreateMarkovChain <- function(data) {
   # find quantiles
@@ -123,9 +132,14 @@ CreateMarkovChain <- function(data) {
   print("Summary:")
   summary(mc_ordered)
   print("Transition Matrix:")
-  print(mc_ordered)
-  print("Steady-State Probabilities:")
-  print(steadyStates(mc_ordered))
+  print(round(mc_ordered@transitionMatrix, 3))
+  
+  # Steady-State Probabilities are here but I excluded them
+  # since quantiles implies an even split meaning the probabilities
+  # would all be approximately 1/3
+  
+  # print("Steady-State Probabilities:") 
+  # print(steadyStates(mc_ordered))
   
   # plot
   plot(mc_ordered)
@@ -134,50 +148,119 @@ CreateMarkovChain <- function(data) {
 
 
 ***
-# Run Markov Chain on Selected States
+# Is Population an Issue?
+In this section, I will create plots of initial claims over time for each state in the study in order to assess whether population growth may be influencing the data. This is not meant to be an in-depth demographic analysis, but rather a simple way of checking for a noticeable positive trend in initial claims over time. If there isn't a clear positive trend over time, we can reasonably assume that using nominal claims was a valid decision for this analysis.
+
 ## South Carolina
-```{r}
+```{r echo=FALSE, fig.align="center", fig.height=3, fig.width=5, message=FALSE, warning=FALSE}
+sc <- CollectData("SC")
+GraphClaims(sc)
+```
+
+## North Carolina 
+```{r echo=FALSE, fig.align="center", fig.height=3, fig.width=5, message=FALSE, warning=FALSE}
+nc <- CollectData("NC")
+GraphClaims(nc)
+```
+
+## Georgia 
+```{r echo=FALSE, fig.align="center", fig.height=3, fig.width=5, message=FALSE, warning=FALSE}
+ga <- CollectData("GA")
+GraphClaims(ga)
+```
+
+## Tennessee
+```{r echo=FALSE, fig.align="center", fig.height=3, fig.width=5, message=FALSE, warning=FALSE}
+tn <- CollectData("TN")
+GraphClaims(tn)
+```
+
+## Florida
+```{r echo=FALSE, fig.align="center", fig.height=3, fig.width=5, message=FALSE, warning=FALSE}
+fl <- CollectData("FL")
+GraphClaims(fl)
+```
+
+## California
+```{r  echo=FALSE, fig.align="center", fig.height=3, fig.width=5, message=FALSE, warning=FALSE}
+ca <- CollectData("CA")
+GraphClaims(ca)
+```
+
+## New York
+```{r  echo=FALSE, fig.align="center", fig.height=3, fig.width=5, message=FALSE, warning=FALSE}
+ny <- CollectData("NY")
+GraphClaims(ny)
+```
+
+
+## Conclusion
+All the graphs are unique but none show a concerning, clear positive trend in initial claims over time. The only states that even have positive trends are Georgia and Florida but these seem to be mostly skewed by the 2008 recession. Some states even have significant decline in UI claims like New York. These graphs show that population growth isn't an obvious issue skewing the data and therefore using nominal claims over per capita claims was a valid decision.
+
+
+***
+# Results
+## South Carolina
+```{r fig.align = "center", fig.width=4, fig.height=4}
 sc <- CollectData("SC")
 CreateMarkovChain(sc)
 ```
 
+This transition probability matrix shows that movement between different states is relatively uncommon. For all three states, the most likely transition next quarter is to the same exact state with Low -> Low having the highest single probability of the matrix at 80.9%. Along with this, transitioning across two states is very uncommon with a 5.9% chance of transitioning from Low to High volume and an 8.5% chance of transitioning from High to Low.      
+
+Therefore, we can conclude from this that the volume of unemployment insurance claims remains at a steady rate, but once a transition to a new state is made, it is likely the volume of claims remains in that state across multiple quarters until eventually transitioning again. 
+
 ## North Carolina
-```{r}
+```{r fig.align = "center", fig.width=4, fig.height=4}
 nc <- CollectData("NC")
 CreateMarkovChain(nc)
 ```
 
+North Carolina has similar results to South Carolina. It has even higher probabilities of remaining in the same state with Low -> Low at 83.8%, Medium -> Medium at 60.3% and High -> High at 64.8% which are all higher than the South Carolina's results. The results for transitioning across two states are very similarly low with Low -> High at 4.4% and High -> Low at 9.9%. This still supports the claim that volatility is low for unemployment insurance claims and that the most likely transition each quarter is to remain in the same state.
+
 ## Georgia
-```{r}
+```{r fig.align = "center", fig.width=4, fig.height=4}
 ga <- CollectData("GA")
 CreateMarkovChain(ga)
 ```
 
+Georgia has slightly different results than South Carolina and North Carolina. The probabilities of remaining in the same state are lower than the others with Low -> Low at 70.6%, Medium -> Medium at 55.9% and High -> High at 67.6%. The probabilities of transitioning across two states are also higher with Low -> High at 5.9% and High -> Low at 12.7%. This shows that Georgia has a slightly higher volatility in unemployment insurance claims than South Carolina and North Carolina, but it is still relatively low. It also continues to support the claim that it is exceedingly likely to transition into the same state next quarter.
 
+## Tennessee
+```{r fig.align = "center", fig.width=4, fig.height=4}
+tn <- CollectData("TN")
+CreateMarkovChain(tn)
+```
 
+Tennessee supports the overall trend of low volatility for UI claims for the states in this study. The probabilities of remaining in the same state are comparable to the other state but this is the first time we a very close probability for a non-state to state transition with Medium -> High at 41.2% being very close to Medium -> Medium at 44.1%. Tennessee also has a pretty higher than usual High -> High probability at 12.7% which ties Geogia for the highest. Overall, Tennessee tells a similar story.
+
+## Florida
+```{r fig.align = "center", fig.width=4, fig.height=4}
+fl <- CollectData("FL")
+CreateMarkovChain(fl)
+```
+
+For the last 3 states, we're examining states with very high population. Florida is the first state in this analysis to have 0 instances of transitioning across two states since the probability of transitioning Low -> High or vice versa is 0%. The same state transition probabilities are comparable to the other state but this state is unique in having an extremely high probability of remaining in a high volume of claims with the High -> High probability at 85.9%. Although volatility is low, it does show that having a high volume of unemployment insurance claims in Florida can be a difficult issue to overcome.
+
+## California
+```{r}
+ca <- CollectData("CA")
+CreateMarkovChain(ca)
+```
+
+California further supports that the volume of UI claims in different states has very low volatility given that state to state transitions have the highest probabilities and transitioning across two states is very uncommon. In fact, California actually has one of the lowest probabilities of transitioning across two states, while still having that transition possible, with Low -> High at 1.5% and High -> Low at 4.2%. 
+
+## New York
+```{r}
+ny <- CollectData("NY")
+CreateMarkovChain(ny)
+```
+
+New York follows the same trend, but like Florida it has no cases of transitioning from Low -> High or High -> Low. An interesting development across the more populous states is that High -> High transition is higher on average with New York's being at 85.9% which ties with Florida for the highest. Otherwise, we see similar results.
 
 ***
-# Is Population an Issue
-## South Carolina Claims
-```{r}
-# plot of sc claims
-GraphClaims(sc)
-```
+# Conclusion
+Although every state in the study had its own unique values for their transition probability matrices, the overall trend was the same. For every state in the US studied here, the most likely transition was to remain in the same state of UI claims volume with a very low probability of transitioning across two states. This shows that the volume of unemployment insurance claims is relatively stable across multiple quarters and that once a transition is made, it is likely to remain in that state for multiple quarters. Therefore, the volatility of unemployment insurance claims is low for South Carolina and it's neighboring states.
 
-## North Carolina Claims
-```{r}
-# plot of sc claims
-GraphClaims(nc)
-```
-
-## Georgia Claims
-```{r}
-# plot of sc claims
-GraphClaims(ga)
-```
-
-
-
-
-
+The only difference amongst states found is that more populous states such as Florida, California and New York have higher probabilities of remaining in a high volume of claims once reaching that state. They also have a lower probability of transitioning across two states on average with Florida and Texas having 0 cases of transitioning from low volume of claims to a high volume of claims and vice versa. This shows that differences in the volatility of UI claims across multiple states in the US does exist but for SC, a state that ranks 23rd in population, this trend doesn't exist and rather volatility is slightly higher.
 
