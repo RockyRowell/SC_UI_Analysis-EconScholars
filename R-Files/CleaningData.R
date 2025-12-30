@@ -1,0 +1,341 @@
+## ----message=FALSE, warning=FALSE----------------------------------------------------------------------------
+library(dplyr)
+library(lubridate)
+library(tidyr)
+
+
+## ------------------------------------------------------------------------------------------------------------
+# load data
+pop <- read.csv("Datasets/scPopulation.csv", header = T)
+
+# make the data match other datasets
+pop.expanded <- pop %>%
+  rowwise() %>%
+  mutate(Date = list(seq(ymd(paste0(Year, "-01-01")), ymd(paste0(Year, "-12-01")), by = "month") %>% 
+                       ceiling_date("month") - days(1))) %>%
+  unnest(Date) %>%
+  select(Date, Population) %>%
+  arrange(Date)
+
+# make population an integer column
+pop.expanded$Population <- gsub(",", "", pop.expanded$Population) # Remove commas
+pop.expanded$Population <- as.numeric(pop.expanded$Population)
+
+# check data
+print(pop.expanded)
+
+
+## ------------------------------------------------------------------------------------------------------------
+# gather data
+claims <- read.csv("Datasets/ClaimsData/ar5159.csv", header = T)
+
+# fix date column
+colnames(claims)[colnames(claims) == "rptdate"] <- "Date"
+claims$Date <- as.Date(claims$Date, format = "%m/%d/%Y")
+
+# get rid of all states but SC
+claims <- filter(claims, st=="SC")
+
+# join population data
+claims <- claims %>% 
+  left_join(pop.expanded, by = "Date")
+
+# combine c2-c7 and drop extra columns
+claims <- claims %>%
+  mutate(InitialClaims = c2 + c3 + c4 + c5 + c6 + c7) %>%
+  select(Date, Population, InitialClaims)
+
+# create Initial Claims per Capita
+claims <- claims %>%
+  mutate(InitialClaims.PerCapita = InitialClaims / Population)
+
+# create Intial Claims % change
+claims <- claims %>%
+  arrange(Date) %>%  # check for chronological order
+  mutate(InitialClaims.PerChange = (InitialClaims / lag(InitialClaims) - 1) * 100)
+
+# create lagged claims and lagged claims % change
+claims <- claims %>%
+  arrange(Date) %>%  # check for chronological order
+  mutate(InitialClaims.Lag = lead(InitialClaims),
+         InitialClaims.Lag.PerCapita = lead(InitialClaims.PerCapita),
+         InitialClaims.Lag.PerChange = (lead(InitialClaims) / InitialClaims - 1) * 100)
+
+# create lagged 2 month claims and lagged 2 month claims % change
+claims <- claims %>%
+  arrange(Date) %>%  # check for chronological order
+  mutate(InitialClaims.Lag2 = lead(InitialClaims, 2),
+         InitialClaims.Lag2.PerCapita = lead(InitialClaims.PerCapita, 2),
+         InitialClaims.Lag2.PerChange = (lead(InitialClaims, 2) / InitialClaims.Lag - 1) * 100)
+
+# check data
+tail(claims, 5)
+
+
+## ------------------------------------------------------------------------------------------------------------
+# gather data
+unemployment <- read.csv("Datasets/Laus/UnemploymentSC.csv", header=T)
+employment <- read.csv("Datasets/Laus/EmploymentSC.csv", header=T)
+laborforce <- read.csv("Datasets/Laus/LaborForceSC.csv", header=T)
+
+# rename "Value"
+unemployment <- unemployment %>%
+  rename(Unemployment = Value)
+
+employment <- employment %>%
+  rename(Employment = Value)
+
+laborforce <- laborforce %>%
+  rename(LaborForce = Value)
+
+
+## ------------------------------------------------------------------------------------------------------------
+# list of all months
+month_map <- c("M01" = 1, "M02" = 2, "M03" = 3, "M04" = 4, "M05" = 5, "M06" = 6,
+               "M07" = 7, "M08" = 8, "M09" = 9, "M10" = 10, "M11" = 11, "M12" = 12)
+
+# convert months to a number
+unemployment$Month <- month_map[unemployment$Period]
+employment$Month <- month_map[employment$Period]
+laborforce$Month <- month_map[laborforce$Period]
+
+# create date column
+unemployment$Date <- as.Date(paste(unemployment$Year, unemployment$Month, "01", sep = "-"))
+employment$Date <- as.Date(paste(employment$Year, employment$Month, "01", sep = "-"))
+laborforce$Date <- as.Date(paste(laborforce$Year, laborforce$Month, "01", sep = "-"))
+
+# make date be the last day of the month
+unemployment$Date <- ceiling_date(unemployment$Date, "month") - days(1)
+employment$Date <- ceiling_date(employment$Date, "month") - days(1)
+laborforce$Date <- ceiling_date(laborforce$Date, "month") - days(1)
+
+
+## ------------------------------------------------------------------------------------------------------------
+# add new % change column to every df individualy
+unemployment <- unemployment %>%
+  arrange(Date) %>%  # check for chronological order
+  mutate(Unemployment.Per = (Unemployment / lag(Unemployment) - 1) * 100)
+
+employment <- employment %>%
+  arrange(Date) %>%  # check for chronological order
+  mutate(Employment.Per = (Employment / lag(Employment) - 1) * 100)
+
+laborforce <- laborforce %>%
+  arrange(Date) %>%  # check for chronological order
+  mutate(LaborForce.Per = (LaborForce / lag(LaborForce) - 1) * 100)
+
+
+## ------------------------------------------------------------------------------------------------------------
+# create Laus dataset with all numbers
+Laus <- unemployment %>%
+  select(Date, Unemployment, Unemployment.Per) %>%  # we only want to keep these two columns
+  full_join(employment %>% select(Date, Employment, Employment.Per), by = "Date") %>%
+  full_join(laborforce %>% select(Date, LaborForce, LaborForce.Per), by = "Date")
+
+# create unemployment rate
+Laus <- Laus %>%
+  mutate(UnemploymentRate = Unemployment / LaborForce * 100)
+
+# create unemmployment rate percentage change
+Laus <- Laus %>%
+  arrange(Date) %>%  # check for chronological order
+  mutate(UnemploymentRate.Per = (UnemploymentRate / lag(UnemploymentRate) - 1) * 100)
+
+
+## ------------------------------------------------------------------------------------------------------------
+# join laus data with population data
+Laus <- Laus %>%
+  left_join(pop.expanded, by = "Date")
+
+# create per capita columns for Unemployment, Employment, and Labor Force
+Laus <- Laus %>%
+  mutate(Unemployment.PerCapita = Unemployment / Population,
+         Employment.PerCapita = Employment / Population,
+         LaborForce.PerCapita = LaborForce / Population)
+
+# keep desired columns and organize
+Laus <- Laus %>%
+  select(Date, Unemployment, Unemployment.Per, Unemployment.PerCapita,
+         Employment, Employment.Per, Employment.PerCapita, 
+         LaborForce, LaborForce.Per, LaborForce.PerCapita,
+         UnemploymentRate, UnemploymentRate.Per)
+
+# check Laus data
+tail(Laus, 5)
+
+
+## ------------------------------------------------------------------------------------------------------------
+# gather data
+sp500 <- read.csv("Datasets/SP500/sp500.csv") %>%
+  mutate(Date = mdy(Date))
+
+# last trading day of each month
+sp500_last_trading <- sp500 %>%
+  group_by(YearMonth = floor_date(Date, "month")) %>%
+  slice_max(Date) %>%
+  ungroup()
+
+# dataframe with the actual last day of each month
+sp500_monthly <- sp500_last_trading %>%
+  mutate(Date = ceiling_date(YearMonth, "month") - days(1)) %>%
+  select(-YearMonth)  # Remove helper column
+
+# drop extra columns
+sp500_monthly <- sp500_monthly %>%
+  select(-Open, -High, -Low)
+
+# create percentage change column
+sp500_monthly <- sp500_monthly %>%
+  arrange(Date) %>%  # check for chronological order
+  mutate(SP500.Per = (Close / lag(Close) - 1) * 100)
+
+# rename Close
+sp500_monthly <- sp500_monthly %>%
+  rename(SP500 = Close)
+
+
+## ------------------------------------------------------------------------------------------------------------
+# gather data
+sp500.health <- read.csv("Datasets/SP500/sp500_healthcare.csv") %>%
+  mutate(Date = mdy(Date))
+
+# last trading day of each month
+sp500.health_last_trading <- sp500.health %>%
+  group_by(YearMonth = floor_date(Date, "month")) %>%
+  slice_max(Date) %>%
+  ungroup()
+
+# dataframe with the actual last day of each month
+sp500.health_monthly <- sp500.health_last_trading %>%
+  mutate(Date = ceiling_date(YearMonth, "month") - days(1)) %>%
+  select(-YearMonth)  # Remove helper column
+
+# drop extra columns
+sp500.health_monthly <- sp500.health_monthly %>%
+  select(-Open, -High, -Low)
+
+# create percentage change column
+sp500.health_monthly <- sp500.health_monthly %>%
+  arrange(Date) %>%  # check for chronological order
+  mutate(SP500_Health.Per = (Close / lag(Close) - 1) * 100)
+
+# rename Close
+sp500.health_monthly <- sp500.health_monthly %>%
+  rename(SP500_Health = Close)
+
+
+## ------------------------------------------------------------------------------------------------------------
+# gather data
+sp500.energy <- read.csv("Datasets/SP500/sp500_energy.csv") %>%
+  mutate(Date = mdy(Date))
+
+# last trading day of each month
+sp500.energy_last_trading <- sp500.energy %>%
+  group_by(YearMonth = floor_date(Date, "month")) %>%
+  slice_max(Date) %>%
+  ungroup()
+
+# dataframe with the actual last day of each month
+sp500.energy_monthly <- sp500.energy_last_trading %>%
+  mutate(Date = ceiling_date(YearMonth, "month") - days(1)) %>%
+  select(-YearMonth)  # Remove helper column
+
+# drop extra columns
+sp500.energy_monthly <- sp500.energy_monthly %>%
+  select(-Open, -High, -Low)
+
+# create percentage change column
+sp500.energy_monthly <- sp500.energy_monthly %>%
+  arrange(Date) %>%  # check for chronological order
+  mutate(SP500_Energy.Per = (Close / lag(Close) - 1) * 100)
+
+# rename Close
+sp500.energy_monthly <- sp500.energy_monthly %>%
+  rename(SP500_Energy = Close)
+
+
+## ------------------------------------------------------------------------------------------------------------
+# join df's by date
+SP500.FINAL <- sp500_monthly %>%
+  full_join(sp500.health_monthly, by = "Date") %>%
+  full_join(sp500.energy_monthly, by = "Date")
+
+# check values
+head(SP500.FINAL, 5)
+
+
+## ------------------------------------------------------------------------------------------------------------
+# gather data
+openings <- read.csv("Datasets/FRED-Jobs/openings.csv", header=T)
+hires <- read.csv("Datasets/FRED-Jobs/hires.csv", header=T)
+separations <- read.csv("Datasets/FRED-Jobs/separations.csv", header=T)
+quits <- read.csv("Datasets/FRED-Jobs/quits.csv", header=T)
+layoffs <- read.csv("Datasets/FRED-Jobs/layoffs.csv", header=T)
+lfpr <- read.csv("Datasets/FRED-Jobs/lfpr.csv", header=T)
+
+# rename columns for each dataset, fix dates, and add percentage change
+openings <- openings %>%
+  rename(Openings = JTSJOL) %>%
+  rename(Date = observation_date) %>%
+  mutate(Date = as.Date(Date, format = "%Y-%m-%d"),
+         Openings.Per = (Openings / lag(Openings) - 1) * 100)
+
+hires <- hires %>%
+  rename(Hires = JTSHIL) %>%
+  rename(Date = observation_date) %>%
+  mutate(Date = as.Date(Date, format = "%Y-%m-%d"),
+         Hires.Per = (Hires / lag(Hires) - 1) * 100)
+
+separations <- separations %>%
+  rename(Separations = JTSTSL) %>%
+  rename(Date = observation_date) %>%
+  mutate(Date = as.Date(Date, format = "%Y-%m-%d"),
+         Separations.Per = (Separations / lag(Separations) - 1) * 100)
+
+quits <- quits %>%
+  rename(Quits = JTSQUL) %>%
+  rename(Date = observation_date) %>%
+  mutate(Date = as.Date(Date, format = "%Y-%m-%d"),
+         Quits.Per = (Quits / lag(Quits) - 1) * 100)
+
+layoffs <- layoffs %>%
+  rename(Layoffs = JTSLDL) %>%
+  rename(Date = observation_date) %>%
+  mutate(Date = as.Date(Date, format = "%Y-%m-%d"),
+         Layoffs.Per = (Layoffs / lag(Layoffs) - 1) * 100)
+
+lfpr <- lfpr %>%
+  rename(LFPR = CIVPART) %>%
+  rename(Date = observation_date) %>%
+  mutate(Date = as.Date(Date, format = "%Y-%m-%d"),
+         LFPR.Per = (LFPR / lag(LFPR) - 1) * 100)
+
+# combine datasets
+FRED <- lfpr %>%
+  full_join(hires, by = "Date") %>%
+  full_join(separations, by = "Date") %>%
+  full_join(quits, by = "Date") %>%
+  full_join(layoffs, by = "Date") %>%
+  full_join(openings, by = "Date")
+
+# fix date to move back to last day of the last month
+FRED <- FRED %>%
+  mutate(Date = Date - days(1))
+
+# check data
+tail(FRED, 5)
+
+
+## ------------------------------------------------------------------------------------------------------------
+# Join all datasets to UI Claims Dataset (some data doesn't go that far back)
+FinalData <- claims %>%
+  left_join(Laus, by = "Date") %>%
+  left_join(SP500.FINAL, by = "Date") %>%
+  left_join(FRED, by = "Date")
+
+# check data
+tail(FinalData, 10)
+
+# export data to csv
+write.csv(FinalData, "Datasets/FinalData.csv", row.names = F)
+
